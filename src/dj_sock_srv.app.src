@@ -5,7 +5,9 @@
   {mod, { dj_sock_srv_app, []}},
   {applications,
    [kernel,
-    stdlib
+    stdlib,
+    cowboy,
+    gun
    ]},
   {env,[]},
   {modules, []},
