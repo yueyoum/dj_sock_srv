@@ -1,0 +1,29 @@
+%%%-------------------------------------------------------------------
+%%% @author wang
+%%% @copyright (C) 2016, <COMPANY>
+%%% @doc
+%%%
+%%% @end
+%%% Created : 13. Sep 2016 下午5:38
+%%%-------------------------------------------------------------------
+-author("wang").
+
+-define(ERROR_CODE_BAD_MESSAGE, 1000).
+-define(ERROR_CODE_GOLD_NOT_ENOUGH, 1001).
+-define(ERROR_CODE_DIAMOND_NOT_ENOUGH, 1002).
+-define(ERROR_CODE_INVALID_OPERATE, 1099).
+
+-define(ERROR_CODE_PARTY_CANNOT_CREATE_MULTI_PARTY, 30000).
+-define(ERROR_CODE_PARTY_CANNOT_JOIN_DUE_TO_IN_OTHER_PARTY, 30001).
+-define(ERROR_CODE_PARTY_JOIN_ERROR_NO_ROOM, 30002).
+-define(ERROR_CODE_PARTY_CANNOT_JOIN_SELF_ROOM, 30003).
+-define(ERROR_CODE_PARTY_CANNOT_JOIN_FULL, 30004).
+-define(ERROR_CODE_PARTY_OWNER_CANNOT_QUIT, 30006).
+-define(ERROR_CODE_PARTY_CANNOT_KICK_SELF, 30011).
+-define(ERROR_CODE_PARTY_CANNOT_START_NO_MEMBERS, 30013).
+-define(ERROR_CODE_PARTY_NOT_STARTED, 30020).
+-define(ERROR_CODE_PARTY_HAS_STARTED, 30021).
+-define(ERROR_CODE_PARTY_NOT_OWNER, 30022).
+-define(ERROR_CODE_PARTY_DISMISS, 30030).
+-define(ERROR_CODE_PARTY_END, 30031).
+-define(ERROR_CODE_PARTY_BEEN_KICKED, 30032).

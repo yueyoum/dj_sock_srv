@@ -28,7 +28,13 @@ start_link() ->
 
 %% Child :: {Id,StartFunc,Restart,Shutdown,Type,Modules}
 init([]) ->
-    {ok, { {one_for_all, 0, 1}, []} }.
+%%    PoolArgs = [{name, {local, pool1}}, {worker_module, dj_mongo_client}, {size, 3}, {max_overflow, 5}],
+%%    PoolSpec = poolboy:child_spec(pool1, PoolArgs, []),
+
+    PartySupSpec = {dj_party_sup, {dj_party_sup, start_link, []},
+        permanent, infinity, supervisor, [dj_party_sup]},
+
+    {ok, { {one_for_one, 0, 1}, [PartySupSpec]} }.
 
 %%====================================================================
 %% Internal functions

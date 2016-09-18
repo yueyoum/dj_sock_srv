@@ -13,11 +13,15 @@
 -export([init/2]).
 
 init(Req, Opts) ->
-    Req1 = cowboy_req:reply(
+    {ok, Body, Req1} = cowboy_req:read_body(Req),
+
+    io:format("Body is: ~p~n", [Body]),
+
+    Req2 = cowboy_req:reply(
         200,
         #{<<"content-type">> => <<"application/json">>},
         json:to_binary(#{id => 1, name => <<"abc">>, 3 => d}),
-        Req
+        Req1
     ),
 
-    {ok, Req1, Opts}.
+    {ok, Req2, Opts}.

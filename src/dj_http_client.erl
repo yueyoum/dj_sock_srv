@@ -6,18 +6,24 @@
 %%% @end
 %%% Created : 12. Sep 2016 上午5:42
 %%%-------------------------------------------------------------------
--module(gun_helper).
+-module(dj_http_client).
 -author("wang").
 
+
 %% API
--export([get/3,
-    post/4]).
+-export([get/1,
+    post/2,
+    request/5,
+    parse_session/1,
+    party_create/1]).
 
-get(Host, Port, Path) ->
-    request(Host, Port, Path, <<"GET">>, undefined).
+-include("dj.hrl").
 
-post(Host, Port, Path, Body) ->
-    request(Host, Port, Path, <<"POST">>, Body).
+get(Path) ->
+    request(?HTTP_SERVER_HOST, ?HTTP_SERVER_PORT, Path, <<"GET">>, undefined).
+
+post(Path, Body) when is_binary(Body)->
+    request(?HTTP_SERVER_HOST, ?HTTP_SERVER_PORT, Path, <<"POST">>, Body).
 
 request(Host, Port, Path, Method, Body) ->
     {ok, ConnPid} = gun:open(Host, Port),
@@ -34,4 +40,15 @@ request(Host, Port, Path, Method, Body) ->
     {ok, ResponseBody} = gun:await_body(ConnPid, StreamRef, Ref),
     demonitor(Ref, [flush]),
     gun:shutdown(ConnPid),
-    {ok, ResponseBody}.
+
+    #{<<"code">> := Code, <<"Data">> := Data} = json:from_binary(ResponseBody),
+    if
+        Code =:= 0 -> {ok, Data};
+        true -> {error, Code}
+    end.
+
+parse_session(Data) ->
+    post("/api/session/parse/", Data).
+
+party_create(Data) ->
+    post("/api/party/create/", Data).
