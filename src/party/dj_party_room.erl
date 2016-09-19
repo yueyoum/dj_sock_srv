@@ -15,14 +15,18 @@
 -export([start_link/4,
     reg_char_room_key/1,
     unreg_char_room_key/1,
-    get_info/1,
+    get_all_rooms/0,
+    get_room_info/1,
+    get_simple_room_info/1,
+    get_room_message/1,
     start_party/2,
     dismiss_party/2,
     join_room/3,
     quit_room/2,
     kick_member/3,
     chat/3,
-    buy/3]).
+    buy_check/3,
+    buy_done/5]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -37,7 +41,7 @@
 
 -record(room_message, {
     tp          :: pos_integer(),
-    msg         :: [string()]
+    args        :: [string()]
 }).
 
 -record(room_member, {
@@ -57,7 +61,8 @@
     start_at    :: integer()       % utc timestamp. 0 means not start
 }).
 
--define(ROOM_SURVIVAL_TIME, 1000 * 60).
+-define(ROOM_SURVIVAL_TIME, 1000 * 300 ).
+-define(ROOM_GPROC_PROPERTY_KEY, {p, g, party_room}).
 
 %%%===================================================================
 %%% API
@@ -81,9 +86,24 @@ reg_char_room_key(CharID) ->
 unreg_char_room_key(CharID) ->
     true = gproc:unreg({n, g, dj_utils:char_id_to_party_room_key(CharID)}).
 
+get_all_rooms() ->
+    PidList = gproc:lookup_pids(?ROOM_GPROC_PROPERTY_KEY),
+    rpc:pmap({?MODULE, get_simple_room_info}, [], PidList).
 
-get_info(RoomPid) ->
+get_room_info(undefined) ->
+    undefined;
+
+get_room_info(RoomPid) ->
     gen_server:call(RoomPid, party_info).
+
+get_simple_room_info(RoomPid) ->
+    gen_server:call(RoomPid, simple_party_info).
+
+get_room_message(undefined) ->
+    make_proto_party_message([]);
+
+get_room_message(RoomPid) ->
+    gen_server:call(RoomPid, room_message).
 
 start_party(RoomPid, FromID) ->
     gen_server:call(RoomPid, {start_party, FromID}).
@@ -100,11 +120,14 @@ quit_room(RoomPid, FromID) ->
 kick_member(RoomPid, FromID, TargetID) ->
     gen_server:call(RoomPid, {kick_member, FromID, TargetID}).
 
+buy_check(RoomPid, FromID, BuyID) ->
+    gen_server:call(RoomPid, {buy_check, FromID, BuyID}).
+
+buy_done(RoomPid, FromID, BuyID, BuyName, ItemName) ->
+    gen_server:cast(RoomPid, {buy_done, FromID, BuyID, BuyName, ItemName}).
+
 chat(RoomPid, FromID, Content) ->
     gen_server:cast(RoomPid, {chat, FromID, Content}).
-
-buy(RoomPid, FromID, BuyID) ->
-    gen_server:cast(RoomPid, {buy, FromID, BuyID}).
 
 
 %%%===================================================================
@@ -142,10 +165,10 @@ init([ServerID, OwnerID, CharInfo, RoomLevel]) ->
     },
 
     % register self
-    true = gproc:reg({p, g, party_room}),
+    true = gproc:reg(?ROOM_GPROC_PROPERTY_KEY),
     reg_char_room_key(OwnerID),
 
-    gen_server:cast(self(), {broadcast, undefined, {}}),
+    gen_server:cast(self(), broadcast_party_notify),
     {ok, State}.
 
 %%--------------------------------------------------------------------
@@ -165,7 +188,21 @@ init([ServerID, OwnerID, CharInfo, RoomLevel]) ->
     {stop, Reason :: term(), NewState :: #room{}}).
 
 handle_call(party_info, _From, State) ->
-    {reply, make_proto_msg_party(State), State};
+    {reply, make_proto_party_info(State), State};
+
+handle_call(simple_party_info, _From, #room{level = Lv, seats = Seats, start_at = At} = State) ->
+    #{1 := Owner} = Seats,
+    #{name := Name} = Owner#room_member.info,
+
+    Amount = get_member_amount(Seats),
+
+    % {ok, owner_id, owner_name, level, amount, start_at}
+    Reply = {ok, Owner#room_member.char_id, Name, Lv, Amount, At},
+    {reply, Reply, State};
+
+handle_call(room_message, _From, #room{messages = Messages} = State) ->
+    Reply = make_proto_party_message(Messages),
+    {reply, Reply, State};
 
 %% ==================
 
@@ -177,15 +214,21 @@ handle_call({start_party, _}, _From, #room{start_at = At} = State) when At > 0 -
     Reply = {error, <<"can not start already started">>, ?ERROR_CODE_PARTY_HAS_STARTED},
     {reply, Reply, State};
 
-handle_call({start_party, _}, _From, #room{seats = Seats} = State) ->
+handle_call({start_party, _}, _From, #room{owner = Owner, level = Lv, seats = Seats} = State) ->
     case get_member_amount(Seats) =:= 1 of
         true ->
             Reply = {error, <<"party cannot start no members">>, ?ERROR_CODE_PARTY_CANNOT_START_NO_MEMBERS},
             {reply, Reply, State};
         false ->
             erlang:send_after(?ROOM_SURVIVAL_TIME, self(), party_end),
-            gen_server:cast(self(), {broadcast, undefined, {}}),
-            {reply, ok, State#room{start_at = arrow:timestamp()}}
+
+            CharIDS = get_member_char_ids(Seats),
+            JoinMembers = lists:delete(Owner, CharIDS),
+            PartyProto = make_proto_party_info(State),
+
+            gen_cast_to_members([Owner], {party_start, create, PartyProto}, {}),
+            gen_cast_to_members(JoinMembers, {party_start, join, PartyProto}, {}),
+            {reply, {ok, Lv, JoinMembers}, State#room{start_at = arrow:timestamp()}}
     end;
 
 %% ==================
@@ -214,7 +257,7 @@ handle_call({join_room, _, _}, _From, #room{start_at = At} = State) when At > 0 
     Reply = {error, <<"can not join already started">>, ?ERROR_CODE_PARTY_HAS_STARTED},
     {reply, Reply, State};
 
-handle_call({join_room, FromID, CharInfo}, _From, #room{seats = Seats} = State) ->
+handle_call({join_room, FromID, CharInfo}, _From, #room{seats = Seats, messages = Message} = State) ->
     EmptySeats = get_empty_seats(Seats),
     case maps:size(EmptySeats) =:= 0 of
         true ->
@@ -229,9 +272,12 @@ handle_call({join_room, FromID, CharInfo}, _From, #room{seats = Seats} = State) 
 
             % register
             reg_char_room_key(FromID),
-            gen_server:cast(self(), {broadcast, undefined, {}}),
+            gen_server:cast(self(), broadcast_party_notify),
 
-            {reply, ok, State#room{seats = Seats#{SeatID := Member}}}
+            #{name := Name} = CharInfo,
+            NewMsg = generate_party_message(3, [Name]),
+
+            {reply, ok, State#room{seats = Seats#{SeatID := Member}, messages = [NewMsg | Message]}}
     end;
 
 %% ==================
@@ -245,16 +291,19 @@ handle_call({quit_room, _}, _From, #room{start_at = At} = State) when At > 0 ->
     Reply = {error, <<"can not quit already started">>, ?ERROR_CODE_PARTY_HAS_STARTED},
     {reply, Reply, State};
 
-handle_call({quit_room, FromID}, _From, #room{seats = Seats} = State) ->
-    SeatID = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
+handle_call({quit_room, FromID}, _From, #room{seats = Seats, messages = Messages} = State) ->
+    {SeatID, Info} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
     NewSeats = Seats#{SeatID := undefined},
 
     % un-register
     unreg_char_room_key(FromID),
     gen_cast_to_members([FromID], party_quit, {}),
-    gen_server:cast(self(), {broadcast, FromID, {}}),
+    gen_server:cast(self(), broadcast_party_notify),
 
-    {reply, ok, State#room{seats = NewSeats}};
+    #{name := Name} = Info,
+    NewMsg = generate_party_message(4, [Name]),
+
+    {reply, ok, State#room{seats = NewSeats, messages = [NewMsg | Messages]}};
 
 %% ==================
 
@@ -275,14 +324,39 @@ handle_call({kick_member, _, TargetID}, _From, #room{seats = Seats} = State) ->
         undefined ->
             Reply = {error, <<"not member. cannot kick">>, ?ERROR_CODE_INVALID_OPERATE},
             {reply, Reply, State};
-        SeatID ->
+        {SeatID, _Info} ->
             unreg_char_room_key(TargetID),
             gen_cast_to_members([TargetID], party_been_kicked, {}),
-            gen_server:cast(self(), {broadcast, TargetID, {}}),
+            gen_server:cast(self(), broadcast_party_notify),
 
             NewSeats = Seats#{SeatID := undefined},
             {reply, ok, State#room{seats = NewSeats}}
-    end.
+    end;
+
+handle_call({buy_check, _FromID, _BuyID},  _From, #room{start_at = 0} = State) ->
+    Reply = {error, <<"not start can not buy">>, ?ERROR_CODE_PARTY_NOT_STARTED},
+    {reply, Reply, State};
+
+handle_call({buy_check, FromID, BuyID}, _From, #room{level = Lv, seats = Seats} = State) ->
+    #{FromID := #room_member{buy_info = BuyInfo}} = Seats,
+
+    OtherMembers = lists:delete(FromID, get_member_char_ids(Seats)),
+
+    Reply =
+    case maps:find(BuyID, BuyInfo) of
+        error ->
+            {ok, Lv, OtherMembers};
+        {ok, Value} ->
+            case Value >= 10 of
+                true ->
+                    {error, <<"no buy times">>, ?ERROR_CODE_PARTY_NO_BUY_TIMES};
+                false ->
+                    {ok, Lv, OtherMembers}
+            end
+    end,
+
+    {reply, Reply, State}.
+
 
 %% ==================
 
@@ -299,17 +373,46 @@ handle_call({kick_member, _, TargetID}, _From, #room{seats = Seats} = State) ->
     {noreply, NewState :: #room{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #room{}}).
 
-handle_cast({chat, _FromID, _Content}, #room{seats = _Seats, messages = _Messages} = State) ->
+handle_cast({buy_done, FromID, BuyID, BuyName, ItemName},
+    #room{seats = Seats, messages = Messages} = State) ->
+
+    #{FromID := Member} = Seats,
+    #{name := Name} = Member#room_member.info,
+
+    % update buy info
+    BuyInfo = Member#room_member.buy_info,
+
+    OldValue =
+    case maps:find(BuyID, BuyInfo) of
+        error -> 0;
+        {ok, Value} -> Value
+    end,
+
+    BuyInfo1 = BuyInfo#{BuyID => OldValue+1},
+    Member1 = Member#room_member{buy_info = BuyInfo1},
+    Seats1 = Seats#{FromID := Member1},
+
+    NewMsg = generate_party_message(2, [Name, BuyName, ItemName]),
+    {noreply, State#room{seats = Seats1, messages = [NewMsg | Messages]}};
+
+
+handle_cast({chat, FromID, Content}, #room{seats = Seats, messages = Messages} = State) ->
+    #{FromID := Member} = Seats,
+    #{name := Name} = Member#room_member.info,
+
+    NewMsg = generate_party_message(1, [Name, Content]),
+    {noreply, State#room{messages = [NewMsg | Messages]}};
+
+handle_cast(broadcast_party_notify, #room{seats = Seats} = State) ->
+    PartyProto = make_proto_party_info(State),
+    CharIDs = get_member_char_ids(Seats),
+
+    gen_cast_to_members(CharIDs, {send_party_notify, PartyProto}, {}),
     {noreply, State};
 
-handle_cast({buy, _FromID, _BuyID}, #room{seats = _Seats, messages = _Messages} = State) ->
-    {noreply, State};
-
-handle_cast({broadcast, Exclude, FunctionOnCharID}, #room{seats = Seats} = State) ->
-    PartyProto = make_proto_msg_party(State),
-    CharIDs = lists:delete(Exclude, get_member_char_ids(Seats)),
-
-    gen_cast_to_members(CharIDs, {send_party_notify, PartyProto}, FunctionOnCharID),
+handle_cast({broadcast_msgbin, MsgBin}, #room{seats = Seats} = State) ->
+    CharIDs = get_member_char_ids(Seats),
+    gen_cast_to_members(CharIDs, {send_msg, MsgBin}, {}),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -392,8 +495,8 @@ find_seat_id_by_char_id([], _) ->
 find_seat_id_by_char_id([{_SeatID, undefined} | Rest], CharID) ->
     find_seat_id_by_char_id(Rest, CharID);
 
-find_seat_id_by_char_id([{SeatID, #room_member{char_id = CharID}} | _Rest], CharID) ->
-    SeatID;
+find_seat_id_by_char_id([{SeatID, #room_member{char_id = CharID, info = Info}} | _Rest], CharID) ->
+    {SeatID, Info};
 
 find_seat_id_by_char_id([_Header | Rest], CharID) ->
     find_seat_id_by_char_id(Rest, CharID).
@@ -430,7 +533,7 @@ make_proto_msg_party_member(Seats) ->
 
     lists:foldl(Fun, [], maps:to_list(Seats)).
 
-make_proto_msg_party(Lv, At, Seats) ->
+make_proto_party_info(Lv, At, Seats) ->
     EndAt =
         if
             At > 0 -> At + ?ROOM_SURVIVAL_TIME;
@@ -444,9 +547,40 @@ make_proto_msg_party(Lv, At, Seats) ->
     }.
 
 
-make_proto_msg_party(#room{level = Lv, start_at = At, seats = Seats}) ->
-    make_proto_msg_party(Lv, At, Seats).
+make_proto_party_info(#room{level = Lv, start_at = At, seats = Seats}) ->
+    make_proto_party_info(Lv, At, Seats).
 
+
+make_proto_party_message(Messages) when is_list(Messages) ->
+    Fun = fun(#room_message{tp = Tp, args = Args}, Acc) ->
+            Msg = make_single_proto_party_message(Tp, Args),
+            [Msg | Acc]
+          end,
+
+    #'ProtoPartyMessageNotify'{
+        session = <<>>,
+        act = 'ACT_INIT',
+        messages = lists:foldl(Fun, [], lists:reverse(Messages))
+    }.
+
+make_proto_party_message(tp, args) ->
+    #'ProtoPartyMessageNotify'{
+        session = <<>>,
+        act = 'ACT_UPDATE',
+        messages = [make_single_proto_party_message(tp, args)]
+    }.
+
+make_single_proto_party_message(tp, args) ->
+    #'ProtoPartyMessageNotify.PartyMessage'{
+        tp = tp,
+        args = args
+    }.
+
+generate_party_message(Tp, Args) ->
+    Notify = make_proto_party_message(Tp, Args),
+    MsgBin = dj_protocol_handler:encode_message(Notify),
+    gen_server:cast(self(), {broadcast_msgbin, MsgBin}),
+    #room_message{tp = Tp, args = Args}.
 
 gen_cast_to_members(CharIDs, Message, FunctionOnCharID) ->
     Fun = fun(CID) ->

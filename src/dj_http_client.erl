@@ -15,7 +15,9 @@
     post/2,
     request/5,
     parse_session/1,
-    party_create/1]).
+    party_create/1,
+    party_start/1,
+    party_buy/1]).
 
 -include("dj.hrl").
 
@@ -41,9 +43,10 @@ request(Host, Port, Path, Method, Body) ->
     demonitor(Ref, [flush]),
     gun:shutdown(ConnPid),
 
-    #{<<"code">> := Code, <<"Data">> := Data} = json:from_binary(ResponseBody),
+    #{<<"code">> := Code, <<"data">> := Data,
+        <<"extra">> := Extra, <<"others">> := Others} = json:from_binary(ResponseBody),
     if
-        Code =:= 0 -> {ok, Data};
+        Code =:= 0 -> {ok, Data, Extra, Others};
         true -> {error, Code}
     end.
 
@@ -52,3 +55,9 @@ parse_session(Data) ->
 
 party_create(Data) ->
     post("/api/party/create/", Data).
+
+party_start(Data) ->
+    post("/api/party/start/", Data).
+
+party_buy(Data) ->
+    post("/api/party/buy/", Data).
