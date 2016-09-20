@@ -165,6 +165,18 @@
         }).
 -endif.
 
+-ifndef('PROTOPARTYINFONOTIFY_PB_H').
+-define('PROTOPARTYINFONOTIFY_PB_H', true).
+-record('ProtoPartyInfoNotify',
+        {session,                       % = 1, bytes
+         talent_id,                     % = 2, int32
+         talent_end_at,                 % = 3, int64
+         remained_create_times,         % = 4, int32
+         remained_join_times,           % = 5, int32
+         info                           % = 6, {msg,'ProtoPartyInfo'} (optional)
+        }).
+-endif.
+
 -ifndef('PROTOSOCKETCONNECTRESPONSE_PB_H').
 -define('PROTOSOCKETCONNECTRESPONSE_PB_H', true).
 -record('ProtoSocketConnectResponse',
@@ -197,12 +209,11 @@
         }).
 -endif.
 
--ifndef('PROTOPARTYOPENTIMENOTIFY_PB_H').
--define('PROTOPARTYOPENTIMENOTIFY_PB_H', true).
--record('ProtoPartyOpenTimeNotify',
-        {session,                       % = 1, bytes
-         start_at,                      % = 2, int64
-         close_at                       % = 3, int64
+-ifndef('PROTOTIMERANGE_PB_H').
+-define('PROTOTIMERANGE_PB_H', true).
+-record('ProtoTimeRange',
+        {start_at,                      % = 1, int64
+         close_at                       % = 2, int64
         }).
 -endif.
 
@@ -210,11 +221,11 @@
 -define('PROTOPARTYNOTIFY_PB_H', true).
 -record('ProtoPartyNotify',
         {session,                       % = 1, bytes
-         talent_id,                     % = 2, int32
-         talent_end_at,                 % = 3, int64
-         remained_create_times,         % = 4, int32
-         remained_join_times,           % = 5, int32
-         info                           % = 6, {msg,'ProtoPartyInfo'} (optional)
+         time_range = [],               % = 2, [{msg,'ProtoTimeRange'}]
+         talent_id,                     % = 3, int32
+         talent_end_at,                 % = 4, int64
+         remained_create_times,         % = 5, int32
+         remained_join_times            % = 6, int32
         }).
 -endif.
 

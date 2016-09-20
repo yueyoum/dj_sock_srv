@@ -20,12 +20,9 @@
     server_id           :: non_neg_integer(),
     char_id             :: non_neg_integer(),
     info                :: map(),
+    %% party info
     party_room_pid      :: pid() | undefined,
-    party_create_times  :: non_neg_integer(),
-    party_join_times    :: non_neg_integer(),
+    party_remained_create_times  :: non_neg_integer(),
+    party_remained_join_times    :: non_neg_integer(),
     party_talent_id     :: non_neg_integer()
 }).
-
-
--define(MAX_PARTY_CREATE_TIMES, 100).
--define(MAX_PARTY_JOIN_TIMES, 100).

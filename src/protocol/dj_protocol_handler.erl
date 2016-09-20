@@ -79,7 +79,7 @@ handle(#'ProtoPartyRoomRequest'{},
 handle(#'ProtoPartyCreateRequest'{}, #client_state{party_room_pid = Pid}) when is_pid(Pid) ->
     {error, "party can not create multi party", ?ERROR_CODE_PARTY_CANNOT_CREATE_MULTI_PARTY};
 
-handle(#'ProtoPartyCreateRequest'{}, #client_state{party_create_times = CT}) when CT >= ?MAX_PARTY_CREATE_TIMES ->
+handle(#'ProtoPartyCreateRequest'{}, #client_state{party_remained_create_times = CT}) when CT < 1 ->
     {error, "party no create times", ?ERROR_CODE_PARTY_NO_CREATE_TIMES};
 
 handle(#'ProtoPartyCreateRequest'{id = PartyLevel},
@@ -108,7 +108,7 @@ handle(#'ProtoPartyCreateRequest'{id = PartyLevel},
 handle(#'ProtoPartyJoinRequest'{}, #client_state{party_room_pid = Pid}) when is_pid(Pid) ->
     {error, "party can not join in other party", ?ERROR_CODE_PARTY_CANNOT_JOIN_DUE_TO_IN_OTHER_PARTY};
 
-handle(#'ProtoPartyJoinRequest'{}, #client_state{party_join_times = JT}) when JT >= ?MAX_PARTY_JOIN_TIMES ->
+handle(#'ProtoPartyJoinRequest'{}, #client_state{party_remained_join_times = JT}) when JT < 1 ->
     {error, "party no join times", ?ERROR_CODE_PARTY_NO_JOIN_TIMES};
 
 handle(#'ProtoPartyJoinRequest'{owner_id = OwnerID}, #client_state{char_id = CharID} = State) ->
@@ -231,11 +231,10 @@ handle(#'ProtoPartyStartRequest'{},
     #client_state{server_id = SID, char_id = CharID, party_room_pid = RoomPid} = State) ->
 
     case dj_party_room:start_party(RoomPid, CharID) of
-        {ok, Lv, JoinMembers} ->
+        {ok, _Lv, JoinMembers} ->
             Req = json:to_binary(#{
                 server_id => SID,
                 char_id => CharID,
-                party_level => Lv,
                 member_ids => JoinMembers
             }),
 
@@ -275,7 +274,9 @@ succeed_callback_socket_connect([ApiReturn,
         <<"flag">> := Flag, <<"name">> := Name,
         <<"party_info">> := PartyInfo} = ApiReturn,
 
-    #{<<"create_times">> := CT, <<"join_times">> := JT} = PartyInfo,
+    #{<<"remained_create_times">> := CT,
+        <<"remained_join_times">> := JT,
+        <<"talent_id">> := Talent} = PartyInfo,
 
     Info = #{flag => Flag, name => Name},
 
@@ -286,8 +287,9 @@ succeed_callback_socket_connect([ApiReturn,
         server_id = SID, char_id = CID,
         info = Info,
         party_room_pid = undefined,
-        party_create_times = CT,
-        party_join_times = JT},
+        party_remained_create_times = CT,
+        party_remained_join_times = JT,
+        party_talent_id = Talent},
 
     Key = {n, g, dj_utils:char_id_to_party_room_key(CID)},
     RoomPid = gproc:where(Key),

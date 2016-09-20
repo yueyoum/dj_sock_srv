@@ -80,8 +80,8 @@ init([Ref, Socket, Transport, _Opts]) ->
         ok = OK, closed = Closed, error = Error,
         server_id = 0, char_id = 0, info = #{},
         party_room_pid = undefined,
-        party_create_times = 0,
-        party_join_times = 0,
+        party_remained_create_times = 0,
+        party_remained_join_times = 0,
         party_talent_id = 0},
 
     gen_server:enter_loop(?SERVER, [], State).
@@ -122,34 +122,34 @@ handle_cast(send_login_notify,
     PartyProto = dj_party_room:get_room_info(RoomPid),
     MessageProto = dj_party_room:get_room_message(RoomPid),
 
-    send_party_notify(PartyProto, State),
+    send_party_info_notify(PartyProto, State),
     response(Transport, Socket, MessageProto),
     {noreply, State};
 
 handle_cast({party_start, create, PartyProto}, State) ->
-    send_party_notify(PartyProto, #client_state{party_create_times = CT} = State),
-    {noreply, State#client_state{party_create_times = CT+1}};
+    send_party_info_notify(PartyProto, #client_state{party_remained_create_times = CT} = State),
+    {noreply, State#client_state{party_remained_create_times = CT-1}};
 
 handle_cast({party_start, join, PartyProto}, State) ->
-    send_party_notify(PartyProto, #client_state{party_join_times = JT} = State),
-    {noreply, State#client_state{party_join_times = JT+1}};
+    send_party_info_notify(PartyProto, #client_state{party_remained_join_times = JT} = State),
+    {noreply, State#client_state{party_remained_join_times = JT-1}};
 
 handle_cast(party_dismiss, #client_state{socket = Socket, transport = Transport} = State) ->
     error_response(Transport, Socket, ?ERROR_CODE_PARTY_DISMISS),
-    send_party_notify(undefined, State),
+    send_party_info_notify(undefined, State),
     {noreply, State#client_state{party_room_pid = undefined}};
 
 handle_cast(party_quit, State) ->
-    send_party_notify(undefined, State),
+    send_party_info_notify(undefined, State),
     {noreply, State#client_state{party_room_pid = undefined}};
 
 handle_cast(party_been_kicked, #client_state{socket = Socket, transport = Transport} = State) ->
     error_response(Transport, Socket, ?ERROR_CODE_PARTY_BEEN_KICKED),
-    send_party_notify(undefined, State),
+    send_party_info_notify(undefined, State),
     {noreply, State#client_state{party_room_pid = undefined}};
 
 handle_cast({send_party_notify, PartyProto}, State) ->
-    send_party_notify(PartyProto, State),
+    send_party_info_notify(PartyProto, State),
     {noreply, State};
 
 handle_cast({send_msg, Msg}, #client_state{socket = Socket, transport = Transport} = State) ->
@@ -161,7 +161,7 @@ handle_cast({set_party_talent_id, Talent}, State) ->
 
 handle_cast(party_end, #client_state{socket = Socket, transport = Transport} = State) ->
     error_response(Transport, Socket, ?ERROR_CODE_PARTY_END),
-    send_party_notify(undefined, State),
+    send_party_info_notify(undefined, State),
     {noreply, State#client_state{party_room_pid = undefined}}.
 
 %%--------------------------------------------------------------------
@@ -182,7 +182,7 @@ handle_info({OK, Socket, <<ID:32, MsgBin/binary>>},
     #client_state{socket = Socket, transport = Transport, ok = OK} = State) ->
 
     Name = dj_protocol_mapping:get_name(ID),
-    lager:debug("Socket recv: " ++ integer_to_list(ID) ++ ", " ++ atom_to_list(Name)),
+    lager:info("Socket recv: " ++ integer_to_list(ID) ++ ", " ++ atom_to_list(Name)),
 
     case process_msg(Name, MsgBin, State) of
         {ok, NewState} ->
@@ -197,7 +197,7 @@ handle_info({OK, Socket, <<ID:32, MsgBin/binary>>},
             {noreply, State}
     end;
 
-handle_info({OK, Socket, _}, #client_state{socket = Socket, transport = Transport, ok = OK} = State) ->
+handle_info({OK, Socket, _Data}, #client_state{socket = Socket, transport = Transport, ok = OK} = State) ->
     lager:error("Socket recv bag data"),
     error_response(Transport, Socket),
     {stop, normal, State};
@@ -275,29 +275,18 @@ process_msg(Name, MsgBin, State) ->
         {error, Reason}
     end.
 
-send_party_notify(PartyProto,
+send_party_info_notify(PartyProto,
     #client_state{socket = Socket, transport = Transport,
-        party_create_times = CT, party_join_times = JT,
+        party_remained_create_times = CT,
+        party_remained_join_times = JT,
         party_talent_id = Talent}) ->
 
-    RemainedCT =
-    case ?MAX_PARTY_CREATE_TIMES - CT of
-        A1 when A1 < 0 -> 0;
-        A2 -> A2
-    end,
-
-    RemainedJT =
-    case ?MAX_PARTY_JOIN_TIMES - JT of
-        B1 when B1 < 0 -> 0;
-        B2 -> B2
-    end,
-
-    Msg = #'ProtoPartyNotify'{
+    Msg = #'ProtoPartyInfoNotify'{
         session = <<>>,
         talent_id = Talent,
         talent_end_at = tomorrow_time(12),
-        remained_create_times = RemainedCT,
-        remained_join_times = RemainedJT,
+        remained_create_times = CT,
+        remained_join_times = JT,
         info = PartyProto
     },
 
