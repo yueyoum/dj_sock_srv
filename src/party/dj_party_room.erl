@@ -81,7 +81,6 @@
 start_link(ServerID, FromID, CharInfo, RoomLevel) ->
     gen_server:start_link(?MODULE, [ServerID, FromID, CharInfo, RoomLevel], []).
 
-
 reg_char_room_key(CharID) ->
     true = gproc:reg({n, g, dj_utils:char_id_to_party_room_key(CharID)}).
 
@@ -170,6 +169,7 @@ init([ServerID, OwnerID, CharInfo, RoomLevel]) ->
     true = gproc:reg(?ROOM_GPROC_PROPERTY_KEY),
     reg_char_room_key(OwnerID),
 
+    lager:debug("Party room created by " ++ integer_to_list(OwnerID)),
     gen_server:cast(self(), broadcast_party_notify),
     {ok, State}.
 
@@ -209,17 +209,17 @@ handle_call(room_message, _From, #room{messages = Messages} = State) ->
 %% ==================
 
 handle_call({start_party, FromID}, _From, #room{owner = Owner} = State) when FromID =/= Owner ->
-    Reply = {error, <<"only owner can start party">>, ?ERROR_CODE_PARTY_NOT_OWNER},
+    Reply = {error, "party only owner can start party", ?ERROR_CODE_PARTY_NOT_OWNER},
     {reply, Reply, State};
 
 handle_call({start_party, _}, _From, #room{start_at = At} = State) when At > 0 ->
-    Reply = {error, <<"can not start already started">>, ?ERROR_CODE_PARTY_HAS_STARTED},
+    Reply = {error, "party can not start already started", ?ERROR_CODE_PARTY_HAS_STARTED},
     {reply, Reply, State};
 
 handle_call({start_party, _}, _From, #room{owner = Owner, level = Lv, seats = Seats} = State) ->
     case get_member_amount(Seats) =:= 1 of
         true ->
-            Reply = {error, <<"party cannot start no members">>, ?ERROR_CODE_PARTY_CANNOT_START_NO_MEMBERS},
+            Reply = {error, "party cannot start no members", ?ERROR_CODE_PARTY_CANNOT_START_NO_MEMBERS},
             {reply, Reply, State};
         false ->
             erlang:send_after(?ROOM_SURVIVAL_TIME, self(), party_end),
@@ -230,40 +230,43 @@ handle_call({start_party, _}, _From, #room{owner = Owner, level = Lv, seats = Se
 
             gen_cast_to_members([Owner], {party_start, create, PartyProto}, {}),
             gen_cast_to_members(JoinMembers, {party_start, join, PartyProto}, {}),
+
+            lager:debug("Party started. Owner: " ++ integer_to_list(Owner)),
             {reply, {ok, Lv, JoinMembers}, State#room{start_at = arrow:timestamp()}}
     end;
 
 %% ==================
 
 handle_call({dismiss_party, FromID}, _From, #room{owner = Owner} = State) when FromID =/= Owner ->
-    Reply = {error, <<"only owner can dismiss party">>, ?ERROR_CODE_PARTY_NOT_OWNER},
+    Reply = {error, "party only owner can dismiss party", ?ERROR_CODE_PARTY_NOT_OWNER},
     {reply, Reply, State};
 
 handle_call({dismiss_party, _}, _From, #room{start_at = At} = State) when At > 0 ->
-    Reply = {error, <<"can not dismiss already started">>, ?ERROR_CODE_PARTY_HAS_STARTED},
+    Reply = {error, "party can not dismiss already started", ?ERROR_CODE_PARTY_HAS_STARTED},
     {reply, Reply, State};
 
-handle_call({dismiss_party, _}, _From, #room{seats = Seats} = State) ->
+handle_call({dismiss_party, _}, _From, #room{owner = Owner, seats = Seats} = State) ->
     CharIDS = get_member_char_ids(Seats),
     gen_cast_to_members(CharIDS, party_dismiss, {?MODULE, unreg_char_room_key, []}),
+    lager:debug("Party dismissed. Owner: " ++ integer_to_list(Owner)),
     {stop, normal, State};
 
 %% ==================
 
 
 handle_call({join_room, Owner, _}, _From, #room{owner = Owner} = State) ->
-    Reply = {error, <<"can not join self room">>, ?ERROR_CODE_PARTY_CANNOT_JOIN_SELF_ROOM},
+    Reply = {error, "party can not join self room", ?ERROR_CODE_PARTY_CANNOT_JOIN_SELF_ROOM},
     {reply, Reply, State};
 
 handle_call({join_room, _, _}, _From, #room{start_at = At} = State) when At > 0 ->
-    Reply = {error, <<"can not join already started">>, ?ERROR_CODE_PARTY_HAS_STARTED},
+    Reply = {error, "party can not join already started", ?ERROR_CODE_PARTY_HAS_STARTED},
     {reply, Reply, State};
 
-handle_call({join_room, FromID, CharInfo}, _From, #room{seats = Seats, messages = Message} = State) ->
+handle_call({join_room, FromID, CharInfo}, _From, #room{owner = Owner, seats = Seats, messages = Message} = State) ->
     EmptySeats = get_empty_seats(Seats),
     case maps:size(EmptySeats) =:= 0 of
         true ->
-            Reply = {error, <<"can not join full">>, ?ERROR_CODE_PARTY_CANNOT_JOIN_FULL},
+            Reply = {error, "party can not join full", ?ERROR_CODE_PARTY_CANNOT_JOIN_FULL},
             {reply, Reply, State};
         false ->
             SeatID = lists:min(maps:keys(EmptySeats)),
@@ -279,6 +282,8 @@ handle_call({join_room, FromID, CharInfo}, _From, #room{seats = Seats, messages 
             #{name := Name} = CharInfo,
             NewMsg = generate_party_message(3, [Name]),
 
+            lager:debug("Party " ++ integer_to_list(FromID) ++ " joined. Owner: " ++ integer_to_list(Owner)),
+
             {reply, ok, State#room{seats = Seats#{SeatID := Member}, messages = [NewMsg | Message]}}
     end;
 
@@ -286,14 +291,14 @@ handle_call({join_room, FromID, CharInfo}, _From, #room{seats = Seats, messages 
 
 
 handle_call({quit_room, Owner}, _From, #room{owner = Owner} = State) ->
-    Reply = {error, <<"owner can not quit">>, ?ERROR_CODE_PARTY_OWNER_CANNOT_QUIT},
+    Reply = {error, "party owner can not quit", ?ERROR_CODE_PARTY_OWNER_CANNOT_QUIT},
     {reply, Reply, State};
 
 handle_call({quit_room, _}, _From, #room{start_at = At} = State) when At > 0 ->
-    Reply = {error, <<"can not quit already started">>, ?ERROR_CODE_PARTY_HAS_STARTED},
+    Reply = {error, "party can not quit already started", ?ERROR_CODE_PARTY_HAS_STARTED},
     {reply, Reply, State};
 
-handle_call({quit_room, FromID}, _From, #room{seats = Seats, messages = Messages} = State) ->
+handle_call({quit_room, FromID}, _From, #room{owner = Owner, seats = Seats, messages = Messages} = State) ->
     {SeatID, Info} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
     NewSeats = Seats#{SeatID := undefined},
 
@@ -305,26 +310,28 @@ handle_call({quit_room, FromID}, _From, #room{seats = Seats, messages = Messages
     #{name := Name} = Info,
     NewMsg = generate_party_message(4, [Name]),
 
+    lager:debug("Party " ++ integer_to_list(FromID) ++ " quit. Owner: " ++ integer_to_list(Owner)),
+
     {reply, ok, State#room{seats = NewSeats, messages = [NewMsg | Messages]}};
 
 %% ==================
 
 handle_call({kick_member, FromID, _}, _From, #room{owner = Owner} = State) when FromID =/= Owner ->
-    Reply = {error, <<"can not kick not owner">>, ?ERROR_CODE_PARTY_NOT_OWNER},
+    Reply = {error, "party can not kick not owner", ?ERROR_CODE_PARTY_NOT_OWNER},
     {reply, Reply, State};
 
 handle_call({kick_member, FromID, FromID}, _From, State) ->
-    Reply = {error, <<"can not kick self">>, ?ERROR_CODE_PARTY_CANNOT_KICK_SELF},
+    Reply = {error, "party can not kick self", ?ERROR_CODE_PARTY_CANNOT_KICK_SELF},
     {reply, Reply, State};
 
 handle_call({kick_member, _, _}, _From, #room{start_at = At} = State) when At > 0 ->
-    Reply = {error, <<"can not kick already started">>, ?ERROR_CODE_PARTY_HAS_STARTED},
+    Reply = {error, "party can not kick already started", ?ERROR_CODE_PARTY_HAS_STARTED},
     {reply, Reply, State};
 
-handle_call({kick_member, _, TargetID}, _From, #room{seats = Seats} = State) ->
+handle_call({kick_member, _, TargetID}, _From, #room{owner = Owner, seats = Seats} = State) ->
     case find_seat_id_by_char_id(maps:to_list(Seats), TargetID) of
         undefined ->
-            Reply = {error, <<"not member. cannot kick">>, ?ERROR_CODE_INVALID_OPERATE},
+            Reply = {error, "party not member. cannot kick", ?ERROR_CODE_INVALID_OPERATE},
             {reply, Reply, State};
         {SeatID, _Info} ->
             unreg_char_room_key(TargetID),
@@ -332,11 +339,14 @@ handle_call({kick_member, _, TargetID}, _From, #room{seats = Seats} = State) ->
             gen_server:cast(self(), broadcast_party_notify),
 
             NewSeats = Seats#{SeatID := undefined},
+
+            lager:debug("Party " ++ integer_to_list(TargetID) ++ " beed kicked. Owner: " ++ integer_to_list(Owner)),
+
             {reply, ok, State#room{seats = NewSeats}}
     end;
 
 handle_call({buy_check, _FromID, _BuyID},  _From, #room{start_at = 0} = State) ->
-    Reply = {error, <<"not start can not buy">>, ?ERROR_CODE_PARTY_NOT_STARTED},
+    Reply = {error, "party not start can not buy", ?ERROR_CODE_PARTY_NOT_STARTED},
     {reply, Reply, State};
 
 handle_call({buy_check, FromID, BuyID}, _From, #room{level = Lv, seats = Seats} = State) ->
@@ -351,7 +361,7 @@ handle_call({buy_check, FromID, BuyID}, _From, #room{level = Lv, seats = Seats} 
         {ok, Value} ->
             case Value >= 10 of
                 true ->
-                    {error, <<"no buy times">>, ?ERROR_CODE_PARTY_NO_BUY_TIMES};
+                    {error, "party no buy times", ?ERROR_CODE_PARTY_NO_BUY_TIMES};
                 false ->
                     {ok, Lv, OtherMembers}
             end
@@ -432,7 +442,7 @@ handle_cast({broadcast_msgbin, MsgBin}, #room{seats = Seats} = State) ->
     {noreply, NewState :: #room{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #room{}}).
 handle_info(party_end, #room{sid = SID, owner = Owner, level = Lv, seats = Seats} = State) ->
-    io:format("party_end~n"),
+    lager:debug("Party End. Owner: " ++ integer_to_list(Owner)),
 
     JoinMembers = lists:delete(Owner, get_member_char_ids(Seats)),
 

@@ -9,7 +9,8 @@
     cowboy,
     gun,
     mongodb,
-    gproc
+    gproc,
+    lager
    ]},
   {env,[]},
   {modules, []},

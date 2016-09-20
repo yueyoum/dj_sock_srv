@@ -88,9 +88,7 @@ api_response_handle(Function, Arg, {M, F, A}, StreamTo) ->
             Return;
 
         {error, ErrorCode} ->
-            CodeBin = integer_to_binary(ErrorCode),
-            FuncBin = atom_to_binary(Function, latin1),
-            {error, <<FuncBin/binary, <<", error code: ">>/binary, CodeBin/binary>>, ErrorCode}
+            {error, atom_to_list(Function) ++ ", api error code: " ++ integer_to_list(ErrorCode), ErrorCode}
     end.
 
 api_response_stream(undefined, _) ->

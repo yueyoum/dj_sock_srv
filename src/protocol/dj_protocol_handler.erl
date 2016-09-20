@@ -25,7 +25,7 @@
 
 %% SocketConnectRequest
 handle(#'ProtoSocketConnectRequest'{session = undefined}, _State) ->
-    {error, <<"SocketConnectRequest.session is undefined">>};
+    {error, "SocketConnectRequest.session is undefined"};
 
 handle(#'ProtoSocketConnectRequest'{session = Session}, #client_state{char_id = 0} = State) ->
     dj_http_client:api_response_handle(
@@ -35,13 +35,13 @@ handle(#'ProtoSocketConnectRequest'{session = Session}, #client_state{char_id = 
     );
 
 handle(#'ProtoSocketConnectRequest'{}, _State) ->
-    {error, <<"ReSend SocketConnectRequest">>};
+    {error, "ReSend SocketConnectRequest"};
 
 %% PartyRoomRequest
 handle(#'ProtoPartyRoomRequest'{},
     #client_state{socket = Socket, transport = Transport, char_id = CharID} = State) ->
     checker = check_msg_undefined_and_char_id_zero(
-        <<"PartyRoomRequest">>,
+        "PartyRoomRequest",
         [],
         CharID
     ),
@@ -77,16 +77,16 @@ handle(#'ProtoPartyRoomRequest'{},
 
 %% PartyCreateRequest
 handle(#'ProtoPartyCreateRequest'{}, #client_state{party_room_pid = Pid}) when is_pid(Pid) ->
-    {error, <<"can not create multi party at same time">>, ?ERROR_CODE_PARTY_CANNOT_CREATE_MULTI_PARTY};
+    {error, "party can not create multi party", ?ERROR_CODE_PARTY_CANNOT_CREATE_MULTI_PARTY};
 
 handle(#'ProtoPartyCreateRequest'{}, #client_state{party_create_times = CT}) when CT >= ?MAX_PARTY_CREATE_TIMES ->
-    {error, <<"party no create times">>, ?ERROR_CODE_PARTY_NO_CREATE_TIMES};
+    {error, "party no create times", ?ERROR_CODE_PARTY_NO_CREATE_TIMES};
 
 handle(#'ProtoPartyCreateRequest'{id = PartyLevel},
     #client_state{server_id = SID, char_id = CharID} = State) ->
 
     checker = check_msg_undefined_and_char_id_zero(
-        <<"PartyCreateRequest">>,
+        "PartyCreateRequest",
         [PartyLevel],
         CharID
     ),
@@ -106,14 +106,14 @@ handle(#'ProtoPartyCreateRequest'{id = PartyLevel},
 
 %% PartyJoinRequest
 handle(#'ProtoPartyJoinRequest'{}, #client_state{party_room_pid = Pid}) when is_pid(Pid) ->
-    {error, <<"can not join due to in other party">>, ?ERROR_CODE_PARTY_CANNOT_JOIN_DUE_TO_IN_OTHER_PARTY};
+    {error, "party can not join in other party", ?ERROR_CODE_PARTY_CANNOT_JOIN_DUE_TO_IN_OTHER_PARTY};
 
 handle(#'ProtoPartyJoinRequest'{}, #client_state{party_join_times = JT}) when JT >= ?MAX_PARTY_JOIN_TIMES ->
-    {error, <<"party no join times">>, ?ERROR_CODE_PARTY_NO_JOIN_TIMES};
+    {error, "party no join times", ?ERROR_CODE_PARTY_NO_JOIN_TIMES};
 
 handle(#'ProtoPartyJoinRequest'{owner_id = OwnerID}, #client_state{char_id = CharID} = State) ->
     checker = check_msg_undefined_and_char_id_zero(
-        <<"PartyJoinRequest">>,
+        "PartyJoinRequest",
         [OwnerID],
         CharID
     ),
@@ -128,11 +128,11 @@ handle(#'ProtoPartyJoinRequest'{owner_id = OwnerID}, #client_state{char_id = Cha
 
 %% PartyQuitRequest
 handle(#'ProtoPartyQuitRequest'{}, #client_state{party_room_pid = undefined}) ->
-    {error, <<"no room for quit">>, ?ERROR_CODE_INVALID_OPERATE};
+    {error, "party no room for quit", ?ERROR_CODE_INVALID_OPERATE};
 
 handle(#'ProtoPartyQuitRequest'{}, #client_state{char_id = CharID, party_room_pid = RoomPid} = State) ->
     checker = check_msg_undefined_and_char_id_zero(
-        <<"PartyQuitRequest">>,
+        "PartyQuitRequest",
         [],
         CharID
     ),
@@ -151,13 +151,13 @@ handle(#'ProtoPartyQuitRequest'{}, #client_state{char_id = CharID, party_room_pi
 
 %% PartyKickRequest
 handle(#'ProtoPartyKickRequest'{}, #client_state{party_room_pid = undefined}) ->
-    {error, <<"no room for kick">>, ?ERROR_CODE_INVALID_OPERATE};
+    {error, "party no room for kick", ?ERROR_CODE_INVALID_OPERATE};
 
 handle(#'ProtoPartyKickRequest'{id = TargetID},
     #client_state{char_id = CharID, party_room_pid = RoomPid} = State) ->
 
     checker = check_msg_undefined_and_char_id_zero(
-        <<"PartyKickRequest">>,
+        "PartyKickRequest",
         [TargetID],
         CharID
     ),
@@ -178,15 +178,15 @@ handle(#'ProtoPartyKickRequest'{id = TargetID},
 handle(#'ProtoPartyChatRequest'{},
     #client_state{char_id = CharID, party_room_pid = RoomPid})
     when CharID =:= 0; RoomPid =:= undefined ->
-    {error, <<"no charid or no room for chat">>, ?ERROR_CODE_INVALID_OPERATE};
+    {error, "party no charid or no room for chat", ?ERROR_CODE_INVALID_OPERATE};
 
 handle(#'ProtoPartyChatRequest'{text = Text},
     #client_state{char_id = CharID, party_room_pid = RoomPid} = State) ->
     case byte_size(Text) of
         0 ->
-            {error, <<"chat text is empty">>, ?ERROR_CODE_BAD_MESSAGE};
+            {error, "party chat text is empty", ?ERROR_CODE_BAD_MESSAGE};
         N when N > 1000 ->
-            {error, <<"chat text too large">>, ?ERROR_CODE_PARTY_CHAT_TO_LARGE};
+            {error, "party chat text too large", ?ERROR_CODE_PARTY_CHAT_TO_LARGE};
         _ ->
             dj_party_room:chat(RoomPid, CharID, Text),
             {ok, State}
@@ -196,7 +196,7 @@ handle(#'ProtoPartyChatRequest'{text = Text},
 handle(#'ProtoPartyBuyRequest'{},
     #client_state{char_id = CharID, party_room_pid = RoomPid})
     when CharID =:= 0; RoomPid =:= undefined ->
-    {error, <<"no charid or no room for buy">>, ?ERROR_CODE_INVALID_OPERATE};
+    {error, "party no charid or no room for buy", ?ERROR_CODE_INVALID_OPERATE};
 
 handle(#'ProtoPartyBuyRequest'{buy_id = BuyID},
     #client_state{server_id = SID, char_id = CharID, party_room_pid = RoomPid} = State) ->
@@ -225,7 +225,7 @@ handle(#'ProtoPartyBuyRequest'{buy_id = BuyID},
 handle(#'ProtoPartyStartRequest'{},
     #client_state{char_id = CharID, party_room_pid = RoomPid})
     when CharID =:= 0; RoomPid =:= undefined ->
-    {error, <<"no charid or no room for start">>, ?ERROR_CODE_INVALID_OPERATE};
+    {error, "party no charid or no room for start", ?ERROR_CODE_INVALID_OPERATE};
 
 handle(#'ProtoPartyStartRequest'{},
     #client_state{server_id = SID, char_id = CharID, party_room_pid = RoomPid} = State) ->
@@ -254,7 +254,7 @@ handle(#'ProtoPartyStartRequest'{},
 handle(#'ProtoPartyDismissRequest'{},
     #client_state{char_id = CharID, party_room_pid = RoomPid})
     when CharID =:= 0; RoomPid =:= undefined ->
-    {error, <<"no charid or no room for dismiss">>, ?ERROR_CODE_INVALID_OPERATE};
+    {error, "party no charid or no room for dismiss", ?ERROR_CODE_INVALID_OPERATE};
 
 handle(#'ProtoPartyDismissRequest'{},
     #client_state{char_id = CharID, party_room_pid = RoomPid} = State) ->
@@ -329,7 +329,7 @@ succeed_callback_buy_item([
 
 
 do_party_join(undefined, _State) ->
-    {error, <<"join error. can not find room">>, ?ERROR_CODE_PARTY_JOIN_ERROR_NO_ROOM};
+    {error, "party join error. can not find room", ?ERROR_CODE_PARTY_JOIN_ERROR_NO_ROOM};
 
 do_party_join(RoomPid, #client_state{char_id = CharID, info = Info} = State) ->
     case dj_party_room:join_room(RoomPid, CharID, Info) of
@@ -341,15 +341,14 @@ do_party_join(RoomPid, #client_state{char_id = CharID, info = Info} = State) ->
 
 %% =================================
 
-
 check_msg_undefined_and_char_id_zero(MsgName, _MsgFields, 0) ->
-    {error,  <<MsgName/binary, <<" char_id is 0">>/binary >>};
+    {error,  MsgName ++ " char_id is 0"};
 
 check_msg_undefined_and_char_id_zero(MsgName, MsgFields, _CharID) ->
     Checker = fun(F) -> F =:= undefined end,
     case lists:any(Checker, MsgFields) of
         true ->
-            {error, <<MsgName/binary, <<" has undefined fields">>/binary >>, ?ERROR_CODE_BAD_MESSAGE};
+            {error, MsgName ++ " has undefined fields", ?ERROR_CODE_BAD_MESSAGE};
         false ->
             ok
     end.

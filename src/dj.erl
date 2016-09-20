@@ -13,4 +13,4 @@
 -export([start/0]).
 
 start() ->
-    application:ensure_all_started(dj_sock_srv).
+    {ok, _} = application:ensure_all_started(dj_sock_srv).

@@ -67,7 +67,8 @@ start_link(Ref, Socket, Transport, Opts) ->
     {ok, State :: #client_state{}} | {ok, State :: #client_state{}, timeout() | hibernate} |
     {stop, Reason :: term()} | ignore).
 init([Ref, Socket, Transport, _Opts]) ->
-    io:format("NEW CONNECTION~n"),
+    {ok, {Ip, _Port}} = Transport:peername(Socket),
+    lager:info("New Connection From " ++ inet_parse:ntoa(Ip)),
 
     ok = proc_lib:init_ack({ok, self()}),
     ok = ranch:accept_ack(Ref),
@@ -181,32 +182,32 @@ handle_info({OK, Socket, <<ID:32, MsgBin/binary>>},
     #client_state{socket = Socket, transport = Transport, ok = OK} = State) ->
 
     Name = dj_protocol_mapping:get_name(ID),
-    io:format("RECV: ~p: ~p~n", [ID, Name]),
+    lager:debug("Socket recv: " ++ integer_to_list(ID) ++ ", " ++ atom_to_list(Name)),
 
     case process_msg(Name, MsgBin, State) of
         {ok, NewState} ->
-            io:format("NewState: ~p~n", [NewState]),
             {noreply, NewState};
         {error, Reason} ->
             error_response(Transport, Socket),
+            lager:error("Process msg Error: " ++ Reason),
             {stop, Reason, State};
         {error, Reason, ErrorCode} ->
-            io:format("WARING: ErrorCode: ~p, ~p~n", [ErrorCode, Reason]),
+            lager:warning("Warning: " ++ integer_to_list(ErrorCode) ++ "," ++ Reason),
             error_response(Transport, Socket, ErrorCode),
             {noreply, State}
     end;
 
 handle_info({OK, Socket, _}, #client_state{socket = Socket, transport = Transport, ok = OK} = State) ->
-    io:format("RECV Error Data~n"),
+    lager:error("Socket recv bag data"),
     error_response(Transport, Socket),
     {stop, normal, State};
 
 handle_info({Closed, Socket}, #client_state{socket = Socket, closed = Closed}=State) ->
-    io:format("Socket Closed~n"),
+    lager:info("Socket closed"),
     {stop, normal, State};
 
 handle_info({Error, Socket, Reason}, #client_state{socket = Socket, error = Error}=State) ->
-    io:format("Socket Error. Reason: ~p~n", [Reason]),
+    lager:error("Socket error"),
     {stop, Reason, State};
 
 handle_info({tcp_passive, Socket}, #client_state{socket = Socket, transport = Transport}=State) ->
@@ -225,7 +226,7 @@ handle_info({api_return, Extra}, #client_state{socket = Socket, transport = Tran
     {noreply, State};
 
 handle_info(timeout, State) ->
-    io:format("TIMEOUT~n"),
+    lager:info("Client timeout"),
     {stop, timeout, State}.
 
 
@@ -264,17 +265,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 process_msg(undefined, _MsgBin, _State) ->
-    {error, <<"Unkown Msg ID">>};
+    {error, "Unkown Msg ID"};
 
 process_msg(Name, MsgBin, State) ->
     try dj_protocol:decode_msg(MsgBin, Name) of
         Msg ->
-            io:format("MSG: ~p~n", [Msg]),
             dj_protocol_handler:handle(Msg, State)
     catch error:Reason ->
         {error, Reason}
     end.
-
 
 send_party_notify(PartyProto,
     #client_state{socket = Socket, transport = Transport,
