@@ -20,7 +20,7 @@ start(_StartType, _StartArgs) ->
     %% web
     Dispatch = cowboy_router:compile([
         {'_', [
-            {"/", http_index_handler, []}
+            {"/", http_index, []}
         ]}
     ]),
 

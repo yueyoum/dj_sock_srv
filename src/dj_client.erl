@@ -13,6 +13,9 @@
 
 %% API
 -export([start_link/4,
+    error_response/2,
+    error_response/3,
+    response/3,
     party_open_range/2]).
 
 %% gen_server callbacks
@@ -77,7 +80,8 @@ init([Ref, Socket, Transport, _Opts]) ->
         server_id = 0, char_id = 0, info = #{},
         party_room_pid = undefined,
         party_create_times = 0,
-        party_join_times = 0},
+        party_join_times = 0,
+        party_talent_id = 0},
 
     gen_server:enter_loop(?SERVER, [], State).
 %%--------------------------------------------------------------------
@@ -118,7 +122,7 @@ handle_cast(send_login_notify,
     MessageProto = dj_party_room:get_room_message(RoomPid),
 
     send_party_notify(PartyProto, State),
-    dj_protocol_handler:response(Transport, Socket, MessageProto),
+    response(Transport, Socket, MessageProto),
     {noreply, State};
 
 handle_cast({party_start, create, PartyProto}, State) ->
@@ -130,7 +134,7 @@ handle_cast({party_start, join, PartyProto}, State) ->
     {noreply, State#client_state{party_join_times = JT+1}};
 
 handle_cast(party_dismiss, #client_state{socket = Socket, transport = Transport} = State) ->
-    dj_protocol_handler:error_response(Transport, Socket, ?ERROR_CODE_PARTY_DISMISS),
+    error_response(Transport, Socket, ?ERROR_CODE_PARTY_DISMISS),
     send_party_notify(undefined, State),
     {noreply, State#client_state{party_room_pid = undefined}};
 
@@ -139,7 +143,7 @@ handle_cast(party_quit, State) ->
     {noreply, State#client_state{party_room_pid = undefined}};
 
 handle_cast(party_been_kicked, #client_state{socket = Socket, transport = Transport} = State) ->
-    dj_protocol_handler:error_response(Transport, Socket, ?ERROR_CODE_PARTY_BEEN_KICKED),
+    error_response(Transport, Socket, ?ERROR_CODE_PARTY_BEEN_KICKED),
     send_party_notify(undefined, State),
     {noreply, State#client_state{party_room_pid = undefined}};
 
@@ -148,11 +152,14 @@ handle_cast({send_party_notify, PartyProto}, State) ->
     {noreply, State};
 
 handle_cast({send_msg, Msg}, #client_state{socket = Socket, transport = Transport} = State) ->
-    dj_protocol_handler:response(Transport, Socket, Msg),
+    response(Transport, Socket, Msg),
     {noreply, State};
 
+handle_cast({set_party_talent_id, Talent}, State) ->
+    {noreply, State#client_state{party_talent_id = Talent}};
+
 handle_cast(party_end, #client_state{socket = Socket, transport = Transport} = State) ->
-    dj_protocol_handler:error_response(Transport, Socket, ?ERROR_CODE_PARTY_END),
+    error_response(Transport, Socket, ?ERROR_CODE_PARTY_END),
     send_party_notify(undefined, State),
     {noreply, State#client_state{party_room_pid = undefined}}.
 
@@ -181,17 +188,17 @@ handle_info({OK, Socket, <<ID:32, MsgBin/binary>>},
             io:format("NewState: ~p~n", [NewState]),
             {noreply, NewState};
         {error, Reason} ->
-            dj_protocol_handler:error_response(Transport, Socket),
+            error_response(Transport, Socket),
             {stop, Reason, State};
         {error, Reason, ErrorCode} ->
             io:format("WARING: ErrorCode: ~p, ~p~n", [ErrorCode, Reason]),
-            dj_protocol_handler:error_response(Transport, Socket, ErrorCode),
+            error_response(Transport, Socket, ErrorCode),
             {noreply, State}
     end;
 
 handle_info({OK, Socket, _}, #client_state{socket = Socket, transport = Transport, ok = OK} = State) ->
     io:format("RECV Error Data~n"),
-    dj_protocol_handler:error_response(Transport, Socket),
+    error_response(Transport, Socket),
     {stop, normal, State};
 
 handle_info({Closed, Socket}, #client_state{socket = Socket, closed = Closed}=State) ->
@@ -206,6 +213,15 @@ handle_info({tcp_passive, Socket}, #client_state{socket = Socket, transport = Tr
     io:format("Socket Passive!~n"),
     %% TODO
     Transport:setopts(Socket, [{active, ?ACTIVE}]),
+    {noreply, State};
+
+handle_info({api_return, _Data, Extra}, #client_state{socket = Socket, transport = Transport} = State) ->
+    % TODO _Data
+    Transport:send(Socket, Extra),
+    {noreply, State};
+
+handle_info({api_return, Extra}, #client_state{socket = Socket, transport = Transport} = State) ->
+    Transport:send(Socket, Extra),
     {noreply, State};
 
 handle_info(timeout, State) ->
@@ -262,11 +278,8 @@ process_msg(Name, MsgBin, State) ->
 
 send_party_notify(PartyProto,
     #client_state{socket = Socket, transport = Transport,
-        party_create_times = CT, party_join_times = JT}) ->
-
-    % TODO real time, talent
-    {OpenAt, CloseAt} = party_open_range(0, 23),
-    TEndAt = arrow:add_hours(arrow:timestamp(), 5),
+        party_create_times = CT, party_join_times = JT,
+        party_talent_id = Talent}) ->
 
     RemainedCT =
     case ?MAX_PARTY_CREATE_TIMES - CT of
@@ -282,16 +295,37 @@ send_party_notify(PartyProto,
 
     Msg = #'ProtoPartyNotify'{
         session = <<>>,
-        open_at = OpenAt,
-        close_at = CloseAt,
-        talent_id = 0,
-        talent_end_at = arrow:timestamp(TEndAt),
+        talent_id = Talent,
+        talent_end_at = tomorrow_time(12),
         remained_create_times = RemainedCT,
         remained_join_times = RemainedJT,
         info = PartyProto
     },
 
-    dj_protocol_handler:response(Transport, Socket, Msg).
+    response(Transport, Socket, Msg).
+
+
+error_response(Transport, Socket) ->
+    error_response(Transport, Socket, ?ERROR_CODE_INVALID_OPERATE).
+
+error_response(Transport, Socket, ErrorCode) ->
+    Response = #'ProtoSocketConnectResponse'{
+        ret = ErrorCode,
+        session = <<>>,
+        next_try_at = 0
+    },
+
+    ResponseBin = dj_protocol:encode_msg(Response),
+    ResponseID = dj_protocol_mapping:get_id(Response),
+
+    Transport:send(Socket, [<<ResponseID:32>>, ResponseBin]),
+    ok.
+
+response(Transport, Socket, MsgBin) when is_binary(MsgBin)->
+    ok = Transport:send(Socket, MsgBin);
+
+response(Transport, Socket, Msg) ->
+    response(Transport, Socket, dj_protocol_handler:encode_message(Msg)).
 
 
 party_open_range(H1, H2) ->
@@ -305,3 +339,16 @@ party_open_range(H1, H2) ->
 
     {arrow:timestamp(StartUTC), arrow:timestamp(EndUTC)}.
 
+tomorrow_time(Hour) ->
+    {Date, {HH, _, _}} = arrow:add_hours(arrow:timestamp(), 8),
+
+    T1 =
+    case HH >= Hour of
+        true ->
+            arrow:add_days({Date, {Hour, 0, 0}}, 1);
+        false ->
+            {Date, {Hour, 0, 0}}
+    end,
+
+    T2 = arrow:add_hours(T1, -8),
+    arrow:timestamp(T2).

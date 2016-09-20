@@ -22,7 +22,8 @@
     info                :: map(),
     party_room_pid      :: pid() | undefined,
     party_create_times  :: non_neg_integer(),
-    party_join_times    :: non_neg_integer()
+    party_join_times    :: non_neg_integer(),
+    party_talent_id     :: non_neg_integer()
 }).
 
 

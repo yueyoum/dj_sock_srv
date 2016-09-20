@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 12. Sep 2016 上午7:02
 %%%-------------------------------------------------------------------
--module(http_index_handler).
+-module(http_index).
 -author("wang").
 
 %% API

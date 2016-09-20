@@ -19,6 +19,9 @@
     party_start/1,
     party_buy/1]).
 
+-export([api_response_handle/3,
+    api_response_handle/4]).
+
 -include("dj.hrl").
 
 get(Path) ->
@@ -61,3 +64,52 @@ party_start(Data) ->
 
 party_buy(Data) ->
     post("/api/party/buy/", Data).
+
+
+%% ===================================
+api_response_handle(Function, Arg, {M, F, A}) ->
+    api_response_handle(Function, Arg, {M, F, A}, self()).
+
+api_response_handle(Function, Arg, {M, F, A}, StreamTo) ->
+    case dj_http_client:Function(Arg) of
+        {ok, Data, Extra, Others} ->
+            Return = M:F([Data | A]),
+            % send extra response to StreamTo.
+            % the extra response generated at http server
+            case byte_size(Extra) > 0 of
+                true -> api_response_stream(StreamTo, base64:decode(Extra));
+                false -> ok
+            end,
+
+            api_response_handle_others(Others),
+            Return;
+
+        {error, ErrorCode} ->
+            CodeBin = integer_to_binary(ErrorCode),
+            FuncBin = atom_to_binary(Function, latin1),
+            {error, <<FuncBin/binary, <<", error code: ">>/binary, CodeBin/binary>>, ErrorCode}
+    end.
+
+api_response_stream(undefined, _) ->
+    ok;
+
+api_response_stream(SteamTo, Extra) when is_pid(SteamTo)->
+    case rpc:call(node(SteamTo), erlang, is_process_alive, [SteamTo]) of
+        true ->
+            SteamTo ! {api_return, Extra};
+        false ->
+            ok
+    end.
+
+api_response_handle_others([]) ->
+    ok;
+
+api_response_handle_others([Head | Tail]) ->
+    #{<<"char_id">> := CharID, <<"data">> := Data, <<"extra">> := Extra} = Head,
+    case gproc:where({n, g, dj_utils:char_id_to_binary_id(CharID)}) of
+        undefined ->
+            ok;
+        Pid ->
+            Pid ! {api_return, Data, Extra}
+    end,
+    api_response_handle_others(Tail).

@@ -11,9 +11,6 @@
 
 %% API
 -export([handle/2,
-    error_response/2,
-    error_response/3,
-    response/3,
     encode_message/1]).
 
 %% api succeed callback
@@ -30,15 +27,11 @@
 handle(#'ProtoSocketConnectRequest'{session = undefined}, _State) ->
     {error, <<"SocketConnectRequest.session is undefined">>};
 
-handle(#'ProtoSocketConnectRequest'{session = Session},
-    #client_state{socket = Socket, transport = Transport, char_id = 0} = State) ->
-
-    api_response_handle(
+handle(#'ProtoSocketConnectRequest'{session = Session}, #client_state{char_id = 0} = State) ->
+    dj_http_client:api_response_handle(
         parse_session,
         Session,
-        {?MODULE, succeed_callback_socket_connect, [State]},
-        Transport,
-        Socket
+        {?MODULE, succeed_callback_socket_connect, [State]}
     );
 
 handle(#'ProtoSocketConnectRequest'{}, _State) ->
@@ -76,7 +69,7 @@ handle(#'ProtoPartyRoomRequest'{},
                 rooms = lists:foldl(Fun, [], InfoList)
             },
 
-            response(Transport, Socket, Response),
+            dj_client:response(Transport, Socket, Response),
             {ok, State};
         Error ->
             Error
@@ -90,7 +83,7 @@ handle(#'ProtoPartyCreateRequest'{}, #client_state{party_create_times = CT}) whe
     {error, <<"party no create times">>, ?ERROR_CODE_PARTY_NO_CREATE_TIMES};
 
 handle(#'ProtoPartyCreateRequest'{id = PartyLevel},
-    #client_state{socket = Socket, transport = Transport, server_id = SID, char_id = CharID} = State) ->
+    #client_state{server_id = SID, char_id = CharID} = State) ->
 
     checker = check_msg_undefined_and_char_id_zero(
         <<"PartyCreateRequest">>,
@@ -102,12 +95,10 @@ handle(#'ProtoPartyCreateRequest'{id = PartyLevel},
         ok ->
             Req = json:to_binary(#{server_id => SID, char_id => CharID, party_level => PartyLevel}),
 
-            api_response_handle(
+            dj_http_client:api_response_handle(
                 party_create,
                 Req,
-                {?MODULE, succeed_callback_party_create, [PartyLevel, State]},
-                Transport,
-                Socket
+                {?MODULE, succeed_callback_party_create, [PartyLevel, State]}
             );
         Error ->
             Error
@@ -208,8 +199,7 @@ handle(#'ProtoPartyBuyRequest'{},
     {error, <<"no charid or no room for buy">>, ?ERROR_CODE_INVALID_OPERATE};
 
 handle(#'ProtoPartyBuyRequest'{buy_id = BuyID},
-    #client_state{server_id = SID, char_id = CharID, party_room_pid = RoomPid,
-        socket = Socket, transport = Transport} = State) ->
+    #client_state{server_id = SID, char_id = CharID, party_room_pid = RoomPid} = State) ->
 
     case dj_party_room:buy_check(RoomPid, CharID, BuyID) of
         {ok, Lv, Members} ->
@@ -221,12 +211,10 @@ handle(#'ProtoPartyBuyRequest'{buy_id = BuyID},
                 member_ids => Members
             }),
 
-            api_response_handle(
+            dj_http_client:api_response_handle(
                 party_buy,
                 Req,
-                {?MODULE, succeed_callback_buy_item, [BuyID, State]},
-                Transport,
-                Socket
+                {?MODULE, succeed_callback_buy_item, [BuyID, State]}
             );
         Error ->
             Error
@@ -240,8 +228,7 @@ handle(#'ProtoPartyStartRequest'{},
     {error, <<"no charid or no room for start">>, ?ERROR_CODE_INVALID_OPERATE};
 
 handle(#'ProtoPartyStartRequest'{},
-    #client_state{server_id = SID, char_id = CharID, party_room_pid = RoomPid,
-        socket = Socket, transport = Transport} = State) ->
+    #client_state{server_id = SID, char_id = CharID, party_room_pid = RoomPid} = State) ->
 
     case dj_party_room:start_party(RoomPid, CharID) of
         {ok, Lv, JoinMembers} ->
@@ -252,12 +239,10 @@ handle(#'ProtoPartyStartRequest'{},
                 member_ids => JoinMembers
             }),
 
-            api_response_handle(
+            dj_http_client:api_response_handle(
                 party_start,
                 Req,
-                {?MODULE, succeed_callback_party_start, [State]},
-                Transport,
-                Socket
+                {?MODULE, succeed_callback_party_start, [State]}
             ),
 
             {ok, State};
@@ -319,7 +304,7 @@ succeed_callback_socket_connect([ApiReturn,
         session = <<>>,
         next_try_at = 0
     },
-    response(Transport, Socket, Response),
+    dj_client:response(Transport, Socket, Response),
 
     gen_server:cast(self(), send_login_notify),
     {ok, State2}.
@@ -356,40 +341,6 @@ do_party_join(RoomPid, #client_state{char_id = CharID, info = Info} = State) ->
 
 %% =================================
 
-api_response_handle(Function, Arg, {M, F, A}, Transport, Socket) ->
-    case dj_http_client:Function(Arg) of
-        {ok, Data, Extra, Others} ->
-            Return = M:F([Data | A]),
-            % send extra response to client.
-            % the extra response generated at http server
-            case byte_size(Extra) > 0 of
-                true -> response(Transport, Socket, base64:decode(Extra));
-                false -> ok
-            end,
-
-            api_response_handle_others(Others),
-            Return;
-
-        {error, ErrorCode} ->
-            CodeBin = integer_to_binary(ErrorCode),
-            FuncBin = atom_to_binary(Function, latin1),
-            {error, <<FuncBin/binary, <<", error code: ">>/binary, CodeBin/binary>>, ErrorCode}
-    end.
-
-api_response_handle_others([]) ->
-    ok;
-
-api_response_handle_others([Head | Tail]) ->
-    #{<<"char_id">> := CharID, <<"data">> := Data, <<"extra">> := Extra} = Head,
-    case gproc:where({n, g, dj_utils:char_id_to_binary_id(CharID)}) of
-        undefined ->
-            ok;
-        Pid ->
-            % TODO
-            gen_server:cast(Pid, {api_return, Data, Extra})
-    end,
-    api_response_handle_others(Tail).
-
 
 check_msg_undefined_and_char_id_zero(MsgName, _MsgFields, 0) ->
     {error,  <<MsgName/binary, <<" char_id is 0">>/binary >>};
@@ -402,28 +353,6 @@ check_msg_undefined_and_char_id_zero(MsgName, MsgFields, _CharID) ->
         false ->
             ok
     end.
-
-error_response(Transport, Socket) ->
-    error_response(Transport, Socket, ?ERROR_CODE_INVALID_OPERATE).
-
-error_response(Transport, Socket, ErrorCode) ->
-    Response = #'ProtoSocketConnectResponse'{
-        ret = ErrorCode,
-        session = <<>>,
-        next_try_at = 0
-    },
-
-    ResponseBin = dj_protocol:encode_msg(Response),
-    ResponseID = dj_protocol_mapping:get_id(Response),
-
-    Transport:send(Socket, [<<ResponseID:32>>, ResponseBin]),
-    ok.
-
-response(Transport, Socket, MsgBin) when is_binary(MsgBin)->
-    ok = Transport:send(Socket, MsgBin);
-
-response(Transport, Socket, Msg) ->
-    response(Transport, Socket, encode_message(Msg)).
 
 encode_message(Msg) ->
     ID = dj_protocol_mapping:get_id(Msg),

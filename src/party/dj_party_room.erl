@@ -36,6 +36,8 @@
     terminate/2,
     code_change/3]).
 
+-export([succeed_callback_party_end/1]).
+
 -include("dj_protocol.hrl").
 -include("dj_error_code.hrl").
 
@@ -429,10 +431,32 @@ handle_cast({broadcast_msgbin, MsgBin}, #room{seats = Seats} = State) ->
     {noreply, NewState :: #room{}} |
     {noreply, NewState :: #room{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #room{}}).
-handle_info(party_end, #room{seats = Seats} = State) ->
+handle_info(party_end, #room{sid = SID, owner = Owner, level = Lv, seats = Seats} = State) ->
     io:format("party_end~n"),
-    CharIDS = get_member_char_ids(Seats),
-    gen_cast_to_members(CharIDS, party_end, {?MODULE, unreg_char_room_key, []}),
+
+    JoinMembers = lists:delete(Owner, get_member_char_ids(Seats)),
+
+    Req = json:to_binary(#{
+        server_id => SID,
+        char_id => Owner,
+        party_level => Lv,
+        member_ids => JoinMembers
+    }),
+
+    OwnerPid =
+    case gproc:where({n, g, dj_utils:char_id_to_binary_id(Owner)}) of
+        undefined ->
+            undefined;
+        Pid -> Pid
+    end,
+
+    dj_http_client:api_response_handle(
+        party_end,
+        Req,
+        {?MODULE, succeed_callback_party_end, [State]},
+        OwnerPid
+    ),
+
     {stop, normal, State}.
 
 %%--------------------------------------------------------------------
@@ -468,6 +492,22 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+succeed_callback_party_end([#{<<"talent_id">> := Talent},
+    #room{owner = Owner, seats = Seats} = State]) ->
+
+    case gproc:where({n, g, dj_utils:char_id_to_binary_id(Owner)}) of
+        undefined ->
+            ok;
+        Pid ->
+            gen_server:cast(Pid, {set_party_talent_id, Talent})
+    end,
+
+    CharIDS = get_member_char_ids(Seats),
+    gen_cast_to_members(CharIDS, party_end, {?MODULE, unreg_char_room_key, []}),
+    {ok, State}.
+
+%% =============================
 
 get_member_amount(Seats) ->
     M = maps:filter(fun(_K, V) -> V =/= undefined end, Seats),
