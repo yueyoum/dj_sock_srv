@@ -26,26 +26,39 @@
 -include("dj.hrl").
 
 get(Path) ->
-    request(?HTTP_SERVER_HOST, ?HTTP_SERVER_PORT, Path, <<"GET">>, undefined).
+    request(?HTTP_SERVER_HOST, ?HTTP_SERVER_PORT, Path, get, undefined).
 
 post(Path, Body) when is_binary(Body)->
-    request(?HTTP_SERVER_HOST, ?HTTP_SERVER_PORT, Path, <<"POST">>, Body).
+    request(?HTTP_SERVER_HOST, ?HTTP_SERVER_PORT, Path, post, Body).
 
-request(Host, Port, Path, Method, Body) ->
-    {ok, ConnPid} = gun:open(Host, Port),
+request(_Host, _Port, Path, Method, Body) ->
+%%    {ok, ConnPid} = gun:open(Host, Port),
+%%
+%%    Ref = monitor(process, ConnPid),
+%%
+%%    {ok, _} = gun:await_up(ConnPid, Ref),
+%%
+%%    StreamRef = if
+%%        Body =:= undefined -> gun:request(ConnPid, Method, Path, []);
+%%        true -> gun:request(ConnPid, Method, Path, [], Body)
+%%    end,
+%%
+%%    {ok, ResponseBody} = gun:await_body(ConnPid, StreamRef, Ref),
+%%    demonitor(Ref, [flush]),
+%%    gun:shutdown(ConnPid),
 
-    Ref = monitor(process, ConnPid),
-
-    {ok, _} = gun:await_up(ConnPid, Ref),
-
-    StreamRef = if
-        Body =:= undefined -> gun:request(ConnPid, Method, Path, []);
-        true -> gun:request(ConnPid, Method, Path, [], Body)
+    Req =
+    case Method of
+        get ->
+            {"http://127.0.0.1:8000" ++ Path, []};
+        _ ->
+            Length = byte_size(Body),
+            {"http://127.0.0.1:8000" ++ Path, [{"content-length", integer_to_list(Length)}],
+                "text/plain", Body
+                }
     end,
 
-    {ok, ResponseBody} = gun:await_body(ConnPid, StreamRef, Ref),
-    demonitor(Ref, [flush]),
-    gun:shutdown(ConnPid),
+    {ok, _Header, ResponseBody} = httpc:request(Method, Req, [], []),
 
     #{<<"code">> := Code, <<"data">> := Data,
         <<"extra">> := Extra, <<"others">> := Others} = json:from_binary(ResponseBody),

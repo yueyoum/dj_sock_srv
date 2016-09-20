@@ -6,8 +6,8 @@
   {applications,
    [kernel,
     stdlib,
+    inets,
     cowboy,
-    gun,
     mongodb,
     gproc,
     lager
