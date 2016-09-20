@@ -17,7 +17,8 @@
     parse_session/1,
     party_create/1,
     party_start/1,
-    party_buy/1]).
+    party_buy/1,
+    party_end/1]).
 
 -export([api_response_handle/3,
     api_response_handle/4]).
@@ -65,6 +66,8 @@ party_start(Data) ->
 party_buy(Data) ->
     post("/api/party/buy/", Data).
 
+party_end(Data) ->
+    post("/api/party/end/", Data).
 
 %% ===================================
 api_response_handle(Function, Arg, {M, F, A}) ->
