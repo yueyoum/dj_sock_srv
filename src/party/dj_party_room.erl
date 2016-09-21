@@ -384,7 +384,7 @@ handle_call(kill_room, _From, #room{seats = Seats} = State) ->
 handle_cast({buy_done, FromID, BuyID, BuyName, ItemName},
     #room{seats = Seats, messages = Messages} = State) ->
 
-    {_, Member} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
+    {SeatID, Member} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
     #{name := Name} = Member#room_member.info,
 
     % update buy info
@@ -398,7 +398,7 @@ handle_cast({buy_done, FromID, BuyID, BuyName, ItemName},
 
     BuyInfo1 = BuyInfo#{BuyID => OldValue+1},
     Member1 = Member#room_member{buy_info = BuyInfo1},
-    Seats1 = Seats#{FromID := Member1},
+    Seats1 = Seats#{SeatID := Member1},
 
     NewMsg = generate_party_message(2, [Name, BuyName, ItemName]),
     {noreply, State#room{seats = Seats1, messages = [NewMsg | Messages]}};
