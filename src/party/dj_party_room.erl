@@ -558,21 +558,29 @@ make_proto_msg_party_member_buy_info(BuyInfo) ->
 
 make_proto_msg_party_member(Seats) ->
     Fun = fun({SeatID, Member}, Acc) ->
+                Msg =
                 case Member of
-                    undefined -> Acc;
+                    undefined ->
+                        #'ProtoPartyInfo.PartyMember'{
+                            id = <<>>,
+                            flag = 0,
+                            name = <<>>,
+                            seat_id = SeatID,
+                            buy_info = []
+                        };
                     _ ->
                         #{flag := Flag, name := Name} = Member#room_member.info,
 
-                        Msg = #'ProtoPartyInfo.PartyMember'{
+                        #'ProtoPartyInfo.PartyMember'{
                             id = integer_to_binary(Member#room_member.char_id),
                             flag = Flag,
                             name = Name,
                             seat_id = SeatID,
                             buy_info = make_proto_msg_party_member_buy_info(Member#room_member.buy_info)
-                        },
+                        }
+                end,
 
-                        [Msg | Acc]
-                end
+                [Msg | Acc]
           end,
 
     lists:foldl(Fun, [], maps:to_list(Seats)).
