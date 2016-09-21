@@ -22,23 +22,26 @@
 
 register_char(CharID) ->
     true = gproc:reg({n, g, dj_utils:char_id_to_binary_id(CharID)}),
-    lager:info("Char " ++ integer_to_list(CharID) ++ " register with pid: " ++ pid_to_list(self())),
+    lager:info("Register Char " ++ integer_to_list(CharID)),
     ok.
 
 register_char_party_room(CharID) ->
-    true = gproc:reg({n, g, dj_utils:char_id_to_party_room_key(CharID)}).
+    true = gproc:reg({n, g, dj_utils:char_id_to_party_room_key(CharID)}),
+    lager:info("Register Char Party Room " ++ integer_to_list(CharID)),
+    ok.
 
 register_party_room() ->
     true = gproc:reg({p, g, party_room}).
 
 unregister_char(CharID) ->
     true = gproc:unreg({n, g, dj_utils:char_id_to_binary_id(CharID)}),
-    lager:info("Char " ++ integer_to_list(CharID) ++ " unregister with pid: " ++ pid_to_list(self())),
+    lager:info("Unregister Char " ++ integer_to_list(CharID)),
     ok.
 
-
 unregister_char_party_room(CharID) ->
-    true = gproc:unreg({n, g, dj_utils:char_id_to_party_room_key(CharID)}).
+    true = gproc:unreg({n, g, dj_utils:char_id_to_party_room_key(CharID)}),
+    lager:info("Unregister Char Party Room " ++ integer_to_list(CharID)),
+    ok.
 
 unregister_party_room() ->
     true = gproc:unreg({p, g, party_room}).

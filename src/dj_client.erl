@@ -107,8 +107,8 @@ handle_call(shutdown, _From, #client_state{char_id = CharID} = State) ->
         _ -> ok
     end,
 
-    lager:warning("CharID " ++ integer_to_list(CharID) ++ " process are shutdown by server. " ++ pid_to_list(self())),
-    {stop, normal, State}.
+    lager:warning("CharID " ++ integer_to_list(CharID) ++ " process are shutdown by server. "),
+    {stop, normal, shutdown_ok, State}.
 
 %%--------------------------------------------------------------------
 %% @private
