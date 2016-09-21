@@ -13,8 +13,6 @@
 
 %% API
 -export([start_link/4,
-    reg_char_room_key/1,
-    unreg_char_room_key/1,
     get_all_rooms/0,
     get_room_info/1,
     get_simple_room_info/1,
@@ -26,7 +24,8 @@
     kick_member/3,
     chat/3,
     buy_check/3,
-    buy_done/5]).
+    buy_done/5,
+    kill_room/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -64,7 +63,6 @@
 }).
 
 -define(ROOM_SURVIVAL_TIME, 1000 * 300 ).
--define(ROOM_GPROC_PROPERTY_KEY, {p, g, party_room}).
 
 %%%===================================================================
 %%% API
@@ -81,14 +79,8 @@
 start_link(ServerID, FromID, CharInfo, RoomLevel) ->
     gen_server:start_link(?MODULE, [ServerID, FromID, CharInfo, RoomLevel], []).
 
-reg_char_room_key(CharID) ->
-    true = gproc:reg({n, g, dj_utils:char_id_to_party_room_key(CharID)}).
-
-unreg_char_room_key(CharID) ->
-    true = gproc:unreg({n, g, dj_utils:char_id_to_party_room_key(CharID)}).
-
 get_all_rooms() ->
-    PidList = gproc:lookup_pids(?ROOM_GPROC_PROPERTY_KEY),
+    PidList = dj_global:find_all_room_pids(),
     rpc:pmap({?MODULE, get_simple_room_info}, [], PidList).
 
 get_room_info(undefined) ->
@@ -130,6 +122,8 @@ buy_done(RoomPid, FromID, BuyID, BuyName, ItemName) ->
 chat(RoomPid, FromID, Content) ->
     gen_server:cast(RoomPid, {chat, FromID, Content}).
 
+kill_room(RoomPid) ->
+    gen_server:call(RoomPid, kill_room).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -165,9 +159,8 @@ init([ServerID, OwnerID, CharInfo, RoomLevel]) ->
         start_at = 0
     },
 
-    % register self
-    true = gproc:reg(?ROOM_GPROC_PROPERTY_KEY),
-    reg_char_room_key(OwnerID),
+    dj_global:register_party_room(),
+    dj_global:register_char_party_room(OwnerID),
 
     lager:info("Party room created by " ++ integer_to_list(OwnerID)),
     gen_server:cast(self(), broadcast_party_notify),
@@ -247,7 +240,7 @@ handle_call({dismiss_party, _}, _From, #room{start_at = At} = State) when At > 0
 
 handle_call({dismiss_party, _}, _From, #room{owner = Owner, seats = Seats} = State) ->
     CharIDS = get_member_char_ids(Seats),
-    gen_cast_to_members(CharIDS, party_dismiss, {?MODULE, unreg_char_room_key, []}),
+    gen_cast_to_members(CharIDS, party_dismiss, {dj_glboal, unregister_char_party_room, []}),
     lager:info("Party dismissed. Owner: " ++ integer_to_list(Owner)),
     {stop, normal, State};
 
@@ -275,8 +268,7 @@ handle_call({join_room, FromID, CharInfo}, _From, #room{owner = Owner, seats = S
                 info = CharInfo,
                 buy_info = #{}},
 
-            % register
-            reg_char_room_key(FromID),
+            dj_global:register_char_party_room(FromID),
             gen_server:cast(self(), broadcast_party_notify),
 
             #{name := Name} = CharInfo,
@@ -286,8 +278,6 @@ handle_call({join_room, FromID, CharInfo}, _From, #room{owner = Owner, seats = S
 
             {reply, ok, State#room{seats = Seats#{SeatID := Member}, messages = [NewMsg | Message]}}
     end;
-
-%% ==================
 
 
 handle_call({quit_room, Owner}, _From, #room{owner = Owner} = State) ->
@@ -302,8 +292,7 @@ handle_call({quit_room, FromID}, _From, #room{owner = Owner, seats = Seats, mess
     {SeatID, Info} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
     NewSeats = Seats#{SeatID := undefined},
 
-    % un-register
-    unreg_char_room_key(FromID),
+    dj_global:unregister_char_party_room(FromID),
     gen_cast_to_members([FromID], party_quit, {}),
     gen_server:cast(self(), broadcast_party_notify),
 
@@ -334,7 +323,7 @@ handle_call({kick_member, _, TargetID}, _From, #room{owner = Owner, seats = Seat
             Reply = {error, "party not member. cannot kick", ?ERROR_CODE_INVALID_OPERATE},
             {reply, Reply, State};
         {SeatID, _Info} ->
-            unreg_char_room_key(TargetID),
+            dj_global:unregister_char_party_room(TargetID),
             gen_cast_to_members([TargetID], party_been_kicked, {}),
             gen_server:cast(self(), broadcast_party_notify),
 
@@ -367,8 +356,13 @@ handle_call({buy_check, FromID, BuyID}, _From, #room{level = Lv, seats = Seats} 
             end
     end,
 
-    {reply, Reply, State}.
+    {reply, Reply, State};
 
+handle_call(kill_room, _From, #room{seats = Seats} = State) ->
+    CharIDS = get_member_char_ids(Seats),
+    gen_cast_to_members(CharIDS, party_dismiss, {dj_glboal, unregister_char_party_room, []}),
+    lager:warning("Party Killed"),
+    {stop, normal, kill_done, State}.
 
 %% ==================
 
@@ -454,10 +448,9 @@ handle_info(party_end, #room{sid = SID, owner = Owner, level = Lv, seats = Seats
     }),
 
     OwnerPid =
-    case gproc:where({n, g, dj_utils:char_id_to_binary_id(Owner)}) of
-        undefined ->
-            undefined;
-        Pid -> Pid
+    case dj_global:find_char_pid(Owner) of
+        {error, _} -> undefined;
+        {ok, Pid} -> Pid
     end,
 
     dj_http_client:api_response_handle(
@@ -506,15 +499,13 @@ code_change(_OldVsn, State, _Extra) ->
 succeed_callback_party_end([#{<<"talent_id">> := Talent},
     #room{owner = Owner, seats = Seats} = State]) ->
 
-    case gproc:where({n, g, dj_utils:char_id_to_binary_id(Owner)}) of
-        undefined ->
-            ok;
-        Pid ->
-            gen_server:cast(Pid, {set_party_talent_id, Talent})
+    case dj_global:find_char_pid(Owner) of
+        {error, _} -> ok;
+        {ok, Pid} -> gen_server:cast(Pid, {set_party_talent_id, Talent})
     end,
 
     CharIDS = get_member_char_ids(Seats),
-    gen_cast_to_members(CharIDS, party_end, {?MODULE, unreg_char_room_key, []}),
+    gen_cast_to_members(CharIDS, party_end, {dj_global, unregister_char_party_room, []}),
     {ok, State}.
 
 %% =============================
@@ -639,11 +630,9 @@ gen_cast_to_members(CharIDs, Message, FunctionOnCharID) ->
                 {} -> ok
             end,
 
-            CharPid = gproc:where({n, g, dj_utils:char_id_to_binary_id(CID)}),
-            case CharPid of
-                undefined -> ok;
-                _ ->
-                    gen_server:cast(CharPid, Message)
+            case dj_global:find_char_pid(CID) of
+                {error, _} -> ok;
+                {ok, Pid} -> gen_server:cast(Pid, Message)
             end
           end,
 

@@ -102,7 +102,7 @@ init([Ref, Socket, Transport, _Opts]) ->
     {stop, Reason :: term(), NewState :: #client_state{}}).
 handle_call(shutdown, _From, #client_state{char_id = CharID} = State) ->
     try
-        gproc:unreg({n, g, dj_utils:char_id_to_binary_id(CharID)})
+        dj_global:register_char(CharID)
     catch
         _ -> ok
     end,

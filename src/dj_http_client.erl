@@ -106,10 +106,8 @@ api_response_handle_others([]) ->
 
 api_response_handle_others([Head | Tail]) ->
     #{<<"char_id">> := CharID, <<"data">> := Data, <<"extra">> := Extra} = Head,
-    case gproc:where({n, g, dj_utils:char_id_to_binary_id(CharID)}) of
-        undefined ->
-            ok;
-        Pid ->
-            Pid ! {api_return, Data, Extra}
+    case dj_global:find_char_pid(CharID) of
+        {error, _} -> ok;
+        {ok, Pid} -> Pid ! {api_return, Data, Extra}
     end,
     api_response_handle_others(Tail).
