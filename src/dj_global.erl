@@ -21,7 +21,9 @@
     find_all_room_pids/0]).
 
 register_char(CharID) ->
-    true = gproc:reg({n, g, dj_utils:char_id_to_binary_id(CharID)}).
+    true = gproc:reg({n, g, dj_utils:char_id_to_binary_id(CharID)}),
+    lager:info("Char " ++ integer_to_list(CharID) ++ " register with pid: " ++ pid_to_list(self())),
+    ok.
 
 register_char_party_room(CharID) ->
     true = gproc:reg({n, g, dj_utils:char_id_to_party_room_key(CharID)}).
@@ -30,7 +32,10 @@ register_party_room() ->
     true = gproc:reg({p, g, party_room}).
 
 unregister_char(CharID) ->
-    true = gproc:unreg({n, g, dj_utils:char_id_to_binary_id(CharID)}).
+    true = gproc:unreg({n, g, dj_utils:char_id_to_binary_id(CharID)}),
+    lager:info("Char " ++ integer_to_list(CharID) ++ " unregister with pid: " ++ pid_to_list(self())),
+    ok.
+
 
 unregister_char_party_room(CharID) ->
     true = gproc:unreg({n, g, dj_utils:char_id_to_party_room_key(CharID)}).

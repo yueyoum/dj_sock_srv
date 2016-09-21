@@ -260,7 +260,7 @@ succeed_callback_socket_connect([ApiReturn,
     case dj_global:find_char_pid(CID) of
         {error, _} -> ok;
         {ok, CharPid} ->
-            lager:warning("ODDLY! Char " ++ integer_to_list(CID) ++ " connect, But find old pid"),
+            lager:warning("ODDLY! Char " ++ integer_to_list(CID) ++ " connect, But find old pid: " ++ pid_to_list(CharPid)),
             gen_server:call(CharPid, shutdown)
     end,
 

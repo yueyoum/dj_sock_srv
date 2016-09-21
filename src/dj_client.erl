@@ -102,12 +102,12 @@ init([Ref, Socket, Transport, _Opts]) ->
     {stop, Reason :: term(), NewState :: #client_state{}}).
 handle_call(shutdown, _From, #client_state{char_id = CharID} = State) ->
     try
-        dj_global:register_char(CharID)
+        dj_global:unregister_char(CharID)
     catch
         _ -> ok
     end,
 
-    lager:warning("CharID " ++ integer_to_list(CharID) ++ " process are shutdown by server"),
+    lager:warning("CharID " ++ integer_to_list(CharID) ++ " process are shutdown by server. " ++ pid_to_list(self())),
     {stop, normal, State}.
 
 %%--------------------------------------------------------------------
