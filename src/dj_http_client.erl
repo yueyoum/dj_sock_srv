@@ -26,11 +26,11 @@
 -include("dj.hrl").
 
 get(Path) ->
-    {ok, Uri} = application:get_env(dj, http_server),
+    {ok, Uri} = application:get_env(dj_sock_srv, http_server),
     request(get, Uri, Path, undefined).
 
 post(Path, Body) when is_binary(Body) ->
-    {ok, Uri} = application:get_env(dj, http_server),
+    {ok, Uri} = application:get_env(dj_sock_srv, http_server),
     request(post, Uri, Path, Body).
 
 request(Method, Uri, Path, Body) ->
@@ -79,11 +79,7 @@ api_response_handle(Function, Arg, {M, F, A}, StreamTo) ->
             Return = M:F([Data | A]),
             % send extra response to StreamTo.
             % the extra response generated at http server
-            case byte_size(Extra) > 0 of
-                true -> api_response_stream(StreamTo, base64:decode(Extra));
-                false -> ok
-            end,
-
+            api_response_stream(StreamTo, Extra),
             api_response_handle_others(Others),
             Return;
 
@@ -92,6 +88,9 @@ api_response_handle(Function, Arg, {M, F, A}, StreamTo) ->
     end.
 
 api_response_stream(undefined, _) ->
+    ok;
+
+api_response_stream(_, []) ->
     ok;
 
 api_response_stream(SteamTo, Extra) when is_pid(SteamTo)->

@@ -223,13 +223,17 @@ handle_info({tcp_passive, Socket}, #client_state{socket = Socket, transport = Tr
     Transport:setopts(Socket, [{active, ?ACTIVE}]),
     {noreply, State};
 
-handle_info({api_return, _Data, Extra}, #client_state{socket = Socket, transport = Transport} = State) ->
+handle_info({api_return, _Data, _Extra}, #client_state{socket = _Socket, transport = _Transport} = State) ->
     % TODO _Data
-    Transport:send(Socket, Extra),
+%%    Transport:send(Socket, Extra),
     {noreply, State};
 
 handle_info({api_return, Extra}, #client_state{socket = Socket, transport = Transport} = State) ->
-    Transport:send(Socket, Extra),
+    Fun = fun(Ex) ->
+        Transport:send(Socket, base64:decode(Ex))
+        end,
+
+    lists:foreach(Fun, Extra),
     {noreply, State};
 
 handle_info(timeout, State) ->
