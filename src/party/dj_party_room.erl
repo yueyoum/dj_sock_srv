@@ -342,7 +342,7 @@ handle_call({buy_check, _FromID, _BuyID},  _From, #room{start_at = 0} = State) -
     {reply, Reply, State};
 
 handle_call({buy_check, FromID, BuyID}, _From, #room{level = Lv, seats = Seats} = State) ->
-    {_, Member} = find_seat_id_by_char_id(FromID, Seats),
+    {_, Member} = find_seat_id_by_char_id(Seats, FromID),
     OtherMembers = lists:delete(FromID, get_member_char_ids(Seats)),
 
     Reply =
@@ -405,7 +405,7 @@ handle_cast({buy_done, FromID, BuyID, BuyName, ItemName},
 
 
 handle_cast({chat, FromID, Content}, #room{seats = Seats, messages = Messages} = State) ->
-    #{FromID := Member} = Seats,
+    {_, Member} = find_seat_id_by_char_id(Seats, FromID),
     #{name := Name} = Member#room_member.info,
 
     NewMsg = generate_party_message(1, [Name, Content]),
