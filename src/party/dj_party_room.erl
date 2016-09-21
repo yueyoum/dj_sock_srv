@@ -384,7 +384,7 @@ handle_call(kill_room, _From, #room{seats = Seats} = State) ->
 handle_cast({buy_done, FromID, BuyID, BuyName, ItemName},
     #room{seats = Seats, messages = Messages} = State) ->
 
-    #{FromID := Member} = Seats,
+    {_, Member} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
     #{name := Name} = Member#room_member.info,
 
     % update buy info
