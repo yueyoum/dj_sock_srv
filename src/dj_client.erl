@@ -68,7 +68,7 @@ start_link(Ref, Socket, Transport, Opts) ->
     {stop, Reason :: term()} | ignore).
 init([Ref, Socket, Transport, _Opts]) ->
     {ok, {Ip, _Port}} = Transport:peername(Socket),
-    lager:info("New Connection From " ++ inet_parse:ntoa(Ip)),
+    lager:info("New Connection From ~p", [inet_parse:ntoa(Ip)]),
 
     ok = proc_lib:init_ack({ok, self()}),
     ok = ranch:accept_ack(Ref),
@@ -107,7 +107,7 @@ handle_call(shutdown, _From, #client_state{char_id = CharID} = State) ->
         _ -> ok
     end,
 
-    lager:warning("CharID " ++ integer_to_list(CharID) ++ " process are shutdown by server. "),
+    lager:warning("CharID ~p process are shutdown by server", [CharID]),
     {stop, normal, shutdown_ok, State}.
 
 %%--------------------------------------------------------------------
@@ -189,17 +189,17 @@ handle_info({OK, Socket, <<ID:32, MsgBin/binary>>},
     #client_state{socket = Socket, transport = Transport, ok = OK} = State) ->
 
     Name = dj_protocol_mapping:get_name(ID),
-    lager:info("Socket recv: " ++ integer_to_list(ID) ++ ", " ++ atom_to_list(Name)),
+    lager:info("Socket recv: ~p, ~p", [ID, Name]),
 
     case process_msg(Name, MsgBin, State) of
         {ok, NewState} ->
             {noreply, NewState};
         {error, Reason} ->
             error_response(Transport, Socket),
-            lager:error("Process msg Error: " ++ Reason),
+            lager:error("Process msg Error: ~p", [Reason]),
             {stop, normal, State};
         {error, Reason, ErrorCode} ->
-            lager:warning(integer_to_list(ErrorCode) ++ "," ++ Reason),
+            lager:warning("Warn: ~p, ~p", [ErrorCode, Reason]),
             error_response(Transport, Socket, ErrorCode),
             {noreply, State}
     end;

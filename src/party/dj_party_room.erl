@@ -165,7 +165,7 @@ init([ServerID, OwnerID, CharInfo, RoomLevel]) ->
     dj_global:register_party_room(),
     dj_global:register_char_party_room(OwnerID),
 
-    lager:info("Party room created by " ++ integer_to_list(OwnerID)),
+    lager:info("Party room created by ~p", [OwnerID]),
     gen_server:cast(self(), broadcast_party_notify),
     {ok, State}.
 
@@ -227,7 +227,7 @@ handle_call({start_party, _}, _From, #room{owner = Owner, level = Lv, seats = Se
             gen_cast_to_members([Owner], {party_start, create, PartyProto}, {}),
             gen_cast_to_members(JoinMembers, {party_start, join, PartyProto}, {}),
 
-            lager:info("Party started. Owner: " ++ integer_to_list(Owner)),
+            lager:info("Party started. Owner: ~p", [Owner]),
             {reply, {ok, Lv, JoinMembers}, State#room{start_at = arrow:timestamp()}}
     end;
 
@@ -244,8 +244,8 @@ handle_call({dismiss_party, _}, _From, #room{start_at = At} = State) when At > 0
 handle_call({dismiss_party, _}, _From, #room{owner = Owner, seats = Seats} = State) ->
     CharIDS = get_member_char_ids(Seats),
     gen_cast_to_members(CharIDS, party_dismiss, {dj_global, unregister_char_party_room, []}),
-    lager:info("Party dismissed. Owner: " ++ integer_to_list(Owner)),
-    {stop, normal, State};
+    lager:info("Party dismissed. Owner: ~p", [Owner]),
+    {stop, normal, ok ,State};
 
 %% ==================
 
@@ -277,7 +277,7 @@ handle_call({join_room, FromID, CharInfo}, _From, #room{owner = Owner, seats = S
             #{name := Name} = CharInfo,
             NewMsg = generate_party_message(3, [Name]),
 
-            lager:info("Party " ++ integer_to_list(FromID) ++ " joined. Owner: " ++ integer_to_list(Owner)),
+            lager:info("Party ~p joined. Owner: ~p", [FromID, Owner]),
 
             {reply, ok, State#room{seats = Seats#{SeatID := Member}, messages = [NewMsg | Message]}}
     end;
@@ -302,7 +302,7 @@ handle_call({quit_room, FromID}, _From, #room{owner = Owner, seats = Seats, mess
     #{name := Name} = Member#room_member.info,
     NewMsg = generate_party_message(4, [Name]),
 
-    lager:info("Party " ++ integer_to_list(FromID) ++ " quit. Owner: " ++ integer_to_list(Owner)),
+    lager:info("Party ~p quit. Owner: ~p", [FromID, Owner]),
 
     {reply, ok, State#room{seats = NewSeats, messages = [NewMsg | Messages]}};
 
@@ -332,7 +332,7 @@ handle_call({kick_member, _, TargetID}, _From, #room{owner = Owner, seats = Seat
 
             NewSeats = Seats#{SeatID := undefined},
 
-            lager:info("Party " ++ integer_to_list(TargetID) ++ " beed kicked. Owner: " ++ integer_to_list(Owner)),
+            lager:info("Party ~p been kicked. Owner ~p", [TargetID, Owner]),
 
             {reply, ok, State#room{seats = NewSeats}}
     end;
@@ -364,7 +364,7 @@ handle_call(kill_room, _From, #room{seats = Seats} = State) ->
     CharIDS = get_member_char_ids(Seats),
     gen_cast_to_members(CharIDS, party_dismiss, {dj_global, unregister_char_party_room, []}),
     lager:warning("Party Killed"),
-    {stop, normal, kill_done, State}.
+    {stop, normal, ok, State}.
 
 %% ==================
 
@@ -438,7 +438,7 @@ handle_cast({broadcast_msgbin, MsgBin}, #room{seats = Seats} = State) ->
     {noreply, NewState :: #room{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #room{}}).
 handle_info(party_end, #room{sid = SID, owner = Owner, level = Lv, seats = Seats} = State) ->
-    lager:info("Party End. Owner: " ++ integer_to_list(Owner)),
+    lager:info("Party End. Owner: ~p", [Owner]),
 
     JoinMembers = lists:delete(Owner, get_member_char_ids(Seats)),
 
@@ -531,6 +531,9 @@ get_member_char_ids(Seats) ->
 
 get_empty_seats(Seats) ->
     maps:filter(fun(_K, V) -> V =:= undefined end, Seats).
+
+find_seat_id_by_char_id(SeatList, CharID) when is_binary(CharID) ->
+    find_seat_id_by_char_id(SeatList, binary_to_integer(CharID));
 
 find_seat_id_by_char_id([], _) ->
     undefined;
