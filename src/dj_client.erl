@@ -100,8 +100,15 @@ init([Ref, Socket, Transport, _Opts]) ->
     {noreply, NewState :: #client_state{}, timeout() | hibernate} |
     {stop, Reason :: term(), Reply :: term(), NewState :: #client_state{}} |
     {stop, Reason :: term(), NewState :: #client_state{}}).
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call(shutdown, _From, #client_state{char_id = CharID} = State) ->
+    try
+        gproc:unreg({n, g, dj_utils:char_id_to_binary_id(CharID)})
+    catch
+        _ -> ok
+    end,
+
+    lager:warning("CharID " ++ integer_to_list(CharID) ++ " process are shutdown by server"),
+    {stop, normal, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -190,9 +197,9 @@ handle_info({OK, Socket, <<ID:32, MsgBin/binary>>},
         {error, Reason} ->
             error_response(Transport, Socket),
             lager:error("Process msg Error: " ++ Reason),
-            {stop, Reason, State};
+            {stop, normal, State};
         {error, Reason, ErrorCode} ->
-            lager:warning("Warning: " ++ integer_to_list(ErrorCode) ++ "," ++ Reason),
+            lager:warning(integer_to_list(ErrorCode) ++ "," ++ Reason),
             error_response(Transport, Socket, ErrorCode),
             {noreply, State}
     end;

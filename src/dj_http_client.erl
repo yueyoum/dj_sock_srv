@@ -13,7 +13,7 @@
 %% API
 -export([get/1,
     post/2,
-    request/5,
+    request/4,
     parse_session/1,
     party_create/1,
     party_start/1,
@@ -26,42 +26,29 @@
 -include("dj.hrl").
 
 get(Path) ->
-    request(?HTTP_SERVER_HOST, ?HTTP_SERVER_PORT, Path, get, undefined).
+    {ok, Uri} = application:get_env(dj, http_server),
+    request(get, Uri, Path, undefined).
 
-post(Path, Body) when is_binary(Body)->
-    request(?HTTP_SERVER_HOST, ?HTTP_SERVER_PORT, Path, post, Body).
+post(Path, Body) when is_binary(Body) ->
+    {ok, Uri} = application:get_env(dj, http_server),
+    request(post, Uri, Path, Body).
 
-request(_Host, _Port, Path, Method, Body) ->
-%%    {ok, ConnPid} = gun:open(Host, Port),
-%%
-%%    Ref = monitor(process, ConnPid),
-%%
-%%    {ok, _} = gun:await_up(ConnPid, Ref),
-%%
-%%    StreamRef = if
-%%        Body =:= undefined -> gun:request(ConnPid, Method, Path, []);
-%%        true -> gun:request(ConnPid, Method, Path, [], Body)
-%%    end,
-%%
-%%    {ok, ResponseBody} = gun:await_body(ConnPid, StreamRef, Ref),
-%%    demonitor(Ref, [flush]),
-%%    gun:shutdown(ConnPid),
-
+request(Method, Uri, Path, Body) ->
     Req =
     case Method of
         get ->
-            {"http://127.0.0.1:8000" ++ Path, []};
+            {Uri ++ Path, []};
         _ ->
             Length = byte_size(Body),
-            {"http://127.0.0.1:8000" ++ Path, [{"content-length", integer_to_list(Length)}],
+            {Uri ++ Path, [{"content-length", integer_to_list(Length)}],
                 "text/plain", Body
                 }
     end,
 
-    {ok, _Header, ResponseBody} = httpc:request(Method, Req, [], []),
+    {ok, {_, _, ResponseBody}} = httpc:request(Method, Req, [], []),
 
     #{<<"code">> := Code, <<"data">> := Data,
-        <<"extra">> := Extra, <<"others">> := Others} = json:from_binary(ResponseBody),
+        <<"extra">> := Extra, <<"others">> := Others} = json:from_binary(list_to_binary(ResponseBody)),
     if
         Code =:= 0 -> {ok, Data, Extra, Others};
         true -> {error, Code}

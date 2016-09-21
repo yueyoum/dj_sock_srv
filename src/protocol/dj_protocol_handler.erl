@@ -40,13 +40,13 @@ handle(#'ProtoSocketConnectRequest'{}, _State) ->
 %% PartyRoomRequest
 handle(#'ProtoPartyRoomRequest'{},
     #client_state{socket = Socket, transport = Transport, char_id = CharID} = State) ->
-    checker = check_msg_undefined_and_char_id_zero(
+    Checker = check_msg_undefined_and_char_id_zero(
         "PartyRoomRequest",
         [],
         CharID
     ),
 
-    case checker of
+    case Checker of
         ok ->
             InfoList = dj_party_room:get_all_rooms(),
             Fun = fun({ok, OwnerID, OwnerName, Lv, Amount, StartAt}, Acc) ->
@@ -85,13 +85,13 @@ handle(#'ProtoPartyCreateRequest'{}, #client_state{party_remained_create_times =
 handle(#'ProtoPartyCreateRequest'{id = PartyLevel},
     #client_state{server_id = SID, char_id = CharID} = State) ->
 
-    checker = check_msg_undefined_and_char_id_zero(
+    Checker = check_msg_undefined_and_char_id_zero(
         "PartyCreateRequest",
         [PartyLevel],
         CharID
     ),
 
-    case checker of
+    case Checker of
         ok ->
             Req = json:to_binary(#{server_id => SID, char_id => CharID, party_level => PartyLevel}),
 
@@ -112,13 +112,13 @@ handle(#'ProtoPartyJoinRequest'{}, #client_state{party_remained_join_times = JT}
     {error, "party no join times", ?ERROR_CODE_PARTY_NO_JOIN_TIMES};
 
 handle(#'ProtoPartyJoinRequest'{owner_id = OwnerID}, #client_state{char_id = CharID} = State) ->
-    checker = check_msg_undefined_and_char_id_zero(
+    Checker = check_msg_undefined_and_char_id_zero(
         "PartyJoinRequest",
         [OwnerID],
         CharID
     ),
 
-    case checker of
+    case Checker of
         ok ->
             RoomPid = gproc:where({n, g, dj_utils:char_id_to_party_room_key(OwnerID)}),
             do_party_join(RoomPid, State);
@@ -131,13 +131,13 @@ handle(#'ProtoPartyQuitRequest'{}, #client_state{party_room_pid = undefined}) ->
     {error, "party no room for quit", ?ERROR_CODE_INVALID_OPERATE};
 
 handle(#'ProtoPartyQuitRequest'{}, #client_state{char_id = CharID, party_room_pid = RoomPid} = State) ->
-    checker = check_msg_undefined_and_char_id_zero(
+    Checker = check_msg_undefined_and_char_id_zero(
         "PartyQuitRequest",
         [],
         CharID
     ),
 
-    case checker of
+    case Checker of
         ok ->
             case dj_party_room:quit_room(RoomPid, CharID) of
                 ok ->
@@ -156,13 +156,13 @@ handle(#'ProtoPartyKickRequest'{}, #client_state{party_room_pid = undefined}) ->
 handle(#'ProtoPartyKickRequest'{id = TargetID},
     #client_state{char_id = CharID, party_room_pid = RoomPid} = State) ->
 
-    checker = check_msg_undefined_and_char_id_zero(
+    Checker = check_msg_undefined_and_char_id_zero(
         "PartyKickRequest",
         [TargetID],
         CharID
     ),
 
-    case checker of
+    case Checker of
         ok ->
             case dj_party_room:kick_member(RoomPid, CharID, TargetID) of
                 ok ->
@@ -280,11 +280,25 @@ succeed_callback_socket_connect([ApiReturn,
 
     Info = #{flag => Flag, name => Name},
 
+    CharPid = gproc:where({n, g, dj_utils:char_id_to_binary_id(CID)}),
+
+    case CharPid of
+        undefined -> ok;
+        _ ->
+            case rpc:call(node(CharPid), erlang, is_process_alive, [CharPid]) of
+                false -> ok;
+                true ->
+                    lager:warning("ODDLY. Char " ++ integer_to_list(CID) ++ " connecte, But find old pid"),
+                    gen_server:call(CharPid, shutdown)
+            end
+    end,
+
     % global register self
     true = gproc:reg({n, g, dj_utils:char_id_to_binary_id(CID)}),
 
     State1 = State#client_state{
-        server_id = SID, char_id = CID,
+        server_id = SID,
+        char_id = CID,
         info = Info,
         party_room_pid = undefined,
         party_remained_create_times = CT,
