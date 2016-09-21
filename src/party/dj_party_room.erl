@@ -25,7 +25,7 @@
     chat/3,
     buy_check/3,
     buy_done/5,
-    kill_room/1]).
+    kill_room_by_char_id/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -122,8 +122,11 @@ buy_done(RoomPid, FromID, BuyID, BuyName, ItemName) ->
 chat(RoomPid, FromID, Content) ->
     gen_server:cast(RoomPid, {chat, FromID, Content}).
 
-kill_room(RoomPid) ->
-    gen_server:call(RoomPid, kill_room).
+kill_room_by_char_id(CharID) ->
+    case dj_global:find_char_party_room_pid(CharID) of
+        {ok, RoomPid} -> gen_server:call(RoomPid, kill_room);
+        Error -> Error
+    end.
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -240,7 +243,7 @@ handle_call({dismiss_party, _}, _From, #room{start_at = At} = State) when At > 0
 
 handle_call({dismiss_party, _}, _From, #room{owner = Owner, seats = Seats} = State) ->
     CharIDS = get_member_char_ids(Seats),
-    gen_cast_to_members(CharIDS, party_dismiss, {dj_glboal, unregister_char_party_room, []}),
+    gen_cast_to_members(CharIDS, party_dismiss, {dj_global, unregister_char_party_room, []}),
     lager:info("Party dismissed. Owner: " ++ integer_to_list(Owner)),
     {stop, normal, State};
 
@@ -360,7 +363,7 @@ handle_call({buy_check, FromID, BuyID}, _From, #room{level = Lv, seats = Seats} 
 
 handle_call(kill_room, _From, #room{seats = Seats} = State) ->
     CharIDS = get_member_char_ids(Seats),
-    gen_cast_to_members(CharIDS, party_dismiss, {dj_glboal, unregister_char_party_room, []}),
+    gen_cast_to_members(CharIDS, party_dismiss, {dj_global, unregister_char_party_room, []}),
     lager:warning("Party Killed"),
     {stop, normal, kill_done, State}.
 

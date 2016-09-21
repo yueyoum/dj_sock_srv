@@ -39,7 +39,7 @@ handle(#'ProtoSocketConnectRequest'{}, _State) ->
 
 %%
 
-handle(_, #client_state{char_id = CharID}) when CharID =/= 0 ->
+handle(_, #client_state{char_id = CharID}) when CharID =:= 0 ->
     {error, "must send SocketConnectRequest first", ?ERROR_CODE_INVALID_OPERATE};
 
 %% PartyRoomRequest
