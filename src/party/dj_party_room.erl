@@ -222,13 +222,16 @@ handle_call({start_party, _}, _From, #room{owner = Owner, level = Lv, seats = Se
 
             CharIDS = get_member_char_ids(Seats),
             JoinMembers = lists:delete(Owner, CharIDS),
-            PartyProto = make_proto_party_info(State),
+
+            State1 = State#room{start_at = arrow:timestamp()},
+
+            PartyProto = make_proto_party_info(State1),
 
             gen_cast_to_members([Owner], {party_start, create, PartyProto}, {}),
             gen_cast_to_members(JoinMembers, {party_start, join, PartyProto}, {}),
 
             lager:info("Party started. Owner: ~p", [Owner]),
-            {reply, {ok, Lv, JoinMembers}, State#room{start_at = arrow:timestamp()}}
+            {reply, {ok, Lv, JoinMembers}, State1}
     end;
 
 %% ==================
