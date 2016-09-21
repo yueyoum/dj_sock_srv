@@ -292,14 +292,14 @@ handle_call({quit_room, _}, _From, #room{start_at = At} = State) when At > 0 ->
     {reply, Reply, State};
 
 handle_call({quit_room, FromID}, _From, #room{owner = Owner, seats = Seats, messages = Messages} = State) ->
-    {SeatID, Info} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
+    {SeatID, Member} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
     NewSeats = Seats#{SeatID := undefined},
 
     dj_global:unregister_char_party_room(FromID),
     gen_cast_to_members([FromID], party_quit, {}),
     gen_server:cast(self(), broadcast_party_notify),
 
-    #{name := Name} = Info,
+    #{name := Name} = Member#room_member.info,
     NewMsg = generate_party_message(4, [Name]),
 
     lager:info("Party " ++ integer_to_list(FromID) ++ " quit. Owner: " ++ integer_to_list(Owner)),
@@ -325,7 +325,7 @@ handle_call({kick_member, _, TargetID}, _From, #room{owner = Owner, seats = Seat
         undefined ->
             Reply = {error, "party not member. cannot kick", ?ERROR_CODE_INVALID_OPERATE},
             {reply, Reply, State};
-        {SeatID, _Info} ->
+        {SeatID, _} ->
             dj_global:unregister_char_party_room(TargetID),
             gen_cast_to_members([TargetID], party_been_kicked, {}),
             gen_server:cast(self(), broadcast_party_notify),
@@ -342,12 +342,11 @@ handle_call({buy_check, _FromID, _BuyID},  _From, #room{start_at = 0} = State) -
     {reply, Reply, State};
 
 handle_call({buy_check, FromID, BuyID}, _From, #room{level = Lv, seats = Seats} = State) ->
-    #{FromID := #room_member{buy_info = BuyInfo}} = Seats,
-
+    {_, Member} = find_seat_id_by_char_id(FromID, Seats),
     OtherMembers = lists:delete(FromID, get_member_char_ids(Seats)),
 
     Reply =
-    case maps:find(BuyID, BuyInfo) of
+    case maps:find(BuyID, Member#room_member.buy_info) of
         error ->
             {ok, Lv, OtherMembers};
         {ok, Value} ->
@@ -539,8 +538,8 @@ find_seat_id_by_char_id([], _) ->
 find_seat_id_by_char_id([{_SeatID, undefined} | Rest], CharID) ->
     find_seat_id_by_char_id(Rest, CharID);
 
-find_seat_id_by_char_id([{SeatID, #room_member{char_id = CharID, info = Info}} | _Rest], CharID) ->
-    {SeatID, Info};
+find_seat_id_by_char_id([{SeatID, #room_member{char_id = CharID} = Member} | _Rest], CharID) ->
+    {SeatID, Member};
 
 find_seat_id_by_char_id([_Header | Rest], CharID) ->
     find_seat_id_by_char_id(Rest, CharID).
@@ -622,10 +621,10 @@ make_proto_party_message(Tp, Args) ->
         messages = [make_single_proto_party_message(Tp, Args)]
     }.
 
-make_single_proto_party_message(tp, args) ->
+make_single_proto_party_message(Tp, Args) ->
     #'ProtoPartyMessageNotify.PartyMessage'{
-        tp = tp,
-        args = args
+        tp = Tp,
+        args = Args
     }.
 
 generate_party_message(Tp, Args) ->
