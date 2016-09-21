@@ -103,7 +103,7 @@ handle(#'ProtoPartyJoinRequest'{owner_id = undefined}, _) ->
     {error, "party join request, bad message", ?ERROR_CODE_BAD_MESSAGE};
 
 handle(#'ProtoPartyJoinRequest'{owner_id = OwnerID}, #client_state{char_id = CharID, info = Info} = State) ->
-    case dj_global:find_char_party_room_pid(OwnerID) of
+    case dj_global:find_char_party_room_pid(binary_to_integer(OwnerID)) of
         {error, _} ->
             {error, "party join error. can not find room", ?ERROR_CODE_PARTY_JOIN_ERROR_NO_ROOM};
         {ok, Pid} ->
@@ -138,7 +138,7 @@ handle(#'ProtoPartyKickRequest'{id = undefined}, _) ->
 handle(#'ProtoPartyKickRequest'{id = TargetID},
     #client_state{char_id = CharID, party_room_pid = RoomPid} = State) ->
 
-    case dj_party_room:kick_member(RoomPid, CharID, TargetID) of
+    case dj_party_room:kick_member(RoomPid, CharID, binary_to_integer(TargetID)) of
         ok ->
             {ok, State};
         Error ->

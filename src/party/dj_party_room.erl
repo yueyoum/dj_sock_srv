@@ -532,9 +532,6 @@ get_member_char_ids(Seats) ->
 get_empty_seats(Seats) ->
     maps:filter(fun(_K, V) -> V =:= undefined end, Seats).
 
-find_seat_id_by_char_id(SeatList, CharID) when is_binary(CharID) ->
-    find_seat_id_by_char_id(SeatList, binary_to_integer(CharID));
-
 find_seat_id_by_char_id([], _) ->
     undefined;
 
