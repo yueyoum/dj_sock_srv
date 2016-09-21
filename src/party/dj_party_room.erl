@@ -615,11 +615,11 @@ make_proto_party_message(Messages) when is_list(Messages) ->
         messages = lists:foldl(Fun, [], lists:reverse(Messages))
     }.
 
-make_proto_party_message(tp, args) ->
+make_proto_party_message(Tp, Args) ->
     #'ProtoPartyMessageNotify'{
         session = <<>>,
         act = 'ACT_UPDATE',
-        messages = [make_single_proto_party_message(tp, args)]
+        messages = [make_single_proto_party_message(Tp, Args)]
     }.
 
 make_single_proto_party_message(tp, args) ->
