@@ -24,14 +24,17 @@ start(_StartType, _StartArgs) ->
         ]}
     ]),
 
+    {ok, HttpPort} = application:get_env(dj_sock_srv, http_port),
+    {ok, TcpPort} = application:get_env(dj_sock_srv, tcp_port),
+
     {ok, _} = cowboy:start_clear(http, 50,
-        [{port, ?SELF_HTTP_PORT}],
+        [{port, HttpPort}],
         #{env => #{dispatch => Dispatch}}
         ),
 
     %% socket
     SocketOpts = [
-        {port, ?SELF_SOCKET_PORT}
+        {port, TcpPort}
     ],
 
     {ok, _} = ranch:start_listener(dj_sock_srv, 50, ranch_tcp,
