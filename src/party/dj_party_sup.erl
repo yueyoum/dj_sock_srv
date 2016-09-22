@@ -52,13 +52,12 @@ create_room(ServerID, CharID, CharInfo, RoomLevel) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(init(Args :: term()) ->
+-spec init(Args :: term()) ->
     {ok, {SupFlags :: {RestartStrategy :: supervisor:strategy(),
-        MaxR :: non_neg_integer(), MaxT :: non_neg_integer()},
+        MaxR :: non_neg_integer(), MaxT :: pos_integer()},
         [ChildSpec :: supervisor:child_spec()]
     }} |
-    ignore |
-    {error, Reason :: term()}).
+    ignore.
 init([]) ->
 
     RestartStrategy = simple_one_for_one,

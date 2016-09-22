@@ -10,6 +10,7 @@
 -author("wang").
 
 -behaviour(gen_server).
+-behaviour(ranch_protocol).
 
 %% API
 -export([start_link/4,
@@ -44,6 +45,7 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
+-spec start_link(ranch:any(), any(), module(), any()) -> {ok, pid()}.
 start_link(Ref, Socket, Transport, Opts) ->
     proc_lib:start_link(?SERVER, init, [[Ref, Socket, Transport, Opts]]).
 

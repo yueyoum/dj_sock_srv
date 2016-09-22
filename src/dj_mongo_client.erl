@@ -43,7 +43,7 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec(start_link(term()) ->
-    {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
+    {ok, Pid :: pid()} | {error, Reason :: term()}).
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
