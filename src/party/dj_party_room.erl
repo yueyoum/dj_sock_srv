@@ -40,6 +40,8 @@
 -include("dj_protocol.hrl").
 -include("dj_error_code.hrl").
 
+-type(seatid()  :: 1|2|3).
+
 -record(room_message, {
     tp          :: pos_integer(),
     args        :: [string()]
@@ -56,13 +58,13 @@
     sid         :: pos_integer(),   % server id
     owner       :: pos_integer(),   % char id, not pid
     level       :: pos_integer(),   % room level, config id
-    seats       :: map(),          % #{seat_id => #room_member{}}
+    seats       :: #{seatid() := #room_member{} | undefined},
     messages    :: [#room_message{}],
     create_at   :: pos_integer(),   % utc timestamp
     start_at    :: integer()       % utc timestamp. 0 means not start
 }).
 
--define(ROOM_SURVIVAL_TIME, 1000 * 300 ).
+-define(ROOM_SURVIVAL_SECONDS, 300).
 
 %%%===================================================================
 %%% API
@@ -218,7 +220,7 @@ handle_call({start_party, _}, _From, #room{owner = Owner, level = Lv, seats = Se
             Reply = {error, "party cannot start no members", ?ERROR_CODE_PARTY_CANNOT_START_NO_MEMBERS},
             {reply, Reply, State};
         false ->
-            erlang:send_after(?ROOM_SURVIVAL_TIME, self(), party_end),
+            erlang:send_after(?ROOM_SURVIVAL_SECONDS * 1000, self(), party_end),
 
             CharIDS = get_member_char_ids(Seats),
             JoinMembers = lists:delete(Owner, CharIDS),
@@ -404,8 +406,9 @@ handle_cast({buy_done, FromID, BuyID, BuyName, ItemName},
     Seats1 = Seats#{SeatID := Member1},
 
     NewMsg = generate_party_message(2, [Name, BuyName, ItemName]),
-    {noreply, State#room{seats = Seats1, messages = [NewMsg | Messages]}};
+    gen_server:cast(self(), broadcast_party_notify),
 
+    {noreply, State#room{seats = Seats1, messages = [NewMsg | Messages]}};
 
 handle_cast({chat, FromID, Content}, #room{seats = Seats, messages = Messages} = State) ->
     {_, Member} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
@@ -590,7 +593,7 @@ make_proto_msg_party_member(Seats) ->
 make_proto_party_info(Lv, At, Seats) ->
     EndAt =
         if
-            At > 0 -> At + ?ROOM_SURVIVAL_TIME;
+            At > 0 -> At + ?ROOM_SURVIVAL_SECONDS;
             true -> 0
         end,
 

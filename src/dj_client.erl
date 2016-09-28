@@ -14,8 +14,6 @@
 
 %% API
 -export([start_link/4,
-    error_response/2,
-    error_response/3,
     response/3,
     party_open_range/2]).
 
@@ -45,10 +43,8 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec start_link(ranch:any(), any(), module(), any()) -> {ok, pid()}.
 start_link(Ref, Socket, Transport, Opts) ->
     proc_lib:start_link(?SERVER, init, [[Ref, Socket, Transport, Opts]]).
-
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -146,15 +142,19 @@ handle_cast({party_start, join, PartyProto}, State) ->
 handle_cast(party_dismiss, #client_state{socket = Socket, transport = Transport} = State) ->
     error_response(Transport, Socket, ?ERROR_CODE_PARTY_DISMISS),
     send_party_info_notify(undefined, State),
+    % clean message
+    response(Transport, Socket, dj_party_room:get_room_message(undefined)),
     {noreply, State#client_state{party_room_pid = undefined}};
 
-handle_cast(party_quit, State) ->
+handle_cast(party_quit, #client_state{socket = Socket, transport = Transport} = State) ->
     send_party_info_notify(undefined, State),
+    response(Transport, Socket, dj_party_room:get_room_message(undefined)),
     {noreply, State#client_state{party_room_pid = undefined}};
 
 handle_cast(party_been_kicked, #client_state{socket = Socket, transport = Transport} = State) ->
     error_response(Transport, Socket, ?ERROR_CODE_PARTY_BEEN_KICKED),
     send_party_info_notify(undefined, State),
+    response(Transport, Socket, dj_party_room:get_room_message(undefined)),
     {noreply, State#client_state{party_room_pid = undefined}};
 
 handle_cast({send_party_notify, PartyProto}, State) ->
@@ -171,6 +171,7 @@ handle_cast({set_party_talent_id, Talent}, State) ->
 handle_cast(party_end, #client_state{socket = Socket, transport = Transport} = State) ->
     error_response(Transport, Socket, ?ERROR_CODE_PARTY_END),
     send_party_info_notify(undefined, State),
+    response(Transport, Socket, dj_party_room:get_room_message(undefined)),
     {noreply, State#client_state{party_room_pid = undefined}}.
 
 %%--------------------------------------------------------------------
