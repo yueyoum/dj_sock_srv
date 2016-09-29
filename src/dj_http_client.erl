@@ -45,7 +45,7 @@ request(Method, Uri, Path, Body) ->
     {ok, {{_, StatusCode, _}, _, ResponseBody}} = httpc:request(Method, Req, [], []),
     if
         StatusCode =:= 200 ->
-            binary_to_term(ResponseBody);
+            binary_to_term(list_to_binary(ResponseBody));
         true ->
             erlang:throw("bad api status code: " ++ integer_to_list(StatusCode))
     end.

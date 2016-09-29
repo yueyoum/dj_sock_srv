@@ -1,4 +1,4 @@
-%% Auto generate at 2016-09-29T15:04:20.402749.
+%% Auto generate at 2016-09-29T18:05:27.407096.
 %% By proto-ext
 %% DO NOT EDIT
 
@@ -61,15 +61,15 @@
     talent_id                     :: integer()
 }).
 
--record('API.Session.Parse', {
-    session                       :: binary()
-}).
-
 -record('API.Session.PartyInfo', {
     max_buy_times                 :: integer(),
     remained_create_times         :: integer(),
     remained_join_times           :: integer(),
     talent_id                     :: integer()
+}).
+
+-record('API.Session.Parse', {
+    session                       :: binary()
 }).
 
 -record('API.Session.ParseDone', {
