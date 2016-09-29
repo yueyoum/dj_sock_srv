@@ -15,15 +15,12 @@
     post/2,
     request/4,
     parse_session/1,
-    party_create/1,
-    party_start/1,
-    party_buy/1,
-    party_end/1]).
+    party_create/3,
+    party_start/4,
+    party_buy/5,
+    party_end/4]).
 
--export([api_response_handle/3,
-    api_response_handle/4]).
-
--include("dj.hrl").
+-include("dj_api.hrl").
 
 get(Path) ->
     {ok, Uri} = application:get_env(dj_sock_srv, http_server),
@@ -45,69 +42,70 @@ request(Method, Uri, Path, Body) ->
                 }
     end,
 
-    {ok, {_, _, ResponseBody}} = httpc:request(Method, Req, [], []),
-
-    #{<<"code">> := Code, <<"data">> := Data,
-        <<"extra">> := Extra, <<"others">> := Others} = json:from_binary(list_to_binary(ResponseBody)),
+    {ok, {{_, StatusCode, _}, _, ResponseBody}} = httpc:request(Method, Req, [], []),
     if
-        Code =:= 0 -> {ok, Data, Extra, Others};
-        true -> {error, Code}
-    end.
-
-parse_session(Data) ->
-    post("/api/session/parse/", Data).
-
-party_create(Data) ->
-    post("/api/party/create/", Data).
-
-party_start(Data) ->
-    post("/api/party/start/", Data).
-
-party_buy(Data) ->
-    post("/api/party/buy/", Data).
-
-party_end(Data) ->
-    post("/api/party/end/", Data).
-
-%% ===================================
-api_response_handle(Function, Arg, {M, F, A}) ->
-    api_response_handle(Function, Arg, {M, F, A}, self()).
-
-api_response_handle(Function, Arg, {M, F, A}, StreamTo) ->
-    case dj_http_client:Function(Arg) of
-        {ok, Data, Extra, Others} ->
-            Return = M:F([Data | A]),
-            % send extra response to StreamTo.
-            % the extra response generated at http server
-            api_response_stream(StreamTo, Extra),
-            api_response_handle_others(Others),
-            Return;
-
-        {error, ErrorCode} ->
-            {error, atom_to_list(Function) ++ ", api error code: " ++ integer_to_list(ErrorCode), ErrorCode}
-    end.
-
-api_response_stream(undefined, _) ->
-    ok;
-
-api_response_stream(_, []) ->
-    ok;
-
-api_response_stream(SteamTo, Extra) when is_pid(SteamTo)->
-    case rpc:call(node(SteamTo), erlang, is_process_alive, [SteamTo]) of
+        StatusCode =:= 200 ->
+            binary_to_term(ResponseBody);
         true ->
-            SteamTo ! {api_return, Extra};
-        false ->
-            ok
+            erlang:throw("bad api status code: " ++ integer_to_list(StatusCode))
     end.
 
-api_response_handle_others([]) ->
-    ok;
+%%    case StatusCode =:= 200 of
+%%        true ->
+%%            binary_to_term(list_to_binary(ResponseBody));
+%%        flase ->
+%%            erlang:throw("bad api status code: " ++ integer_to_list(StatusCode))
+%%    end.
 
-api_response_handle_others([Head | Tail]) ->
-    #{<<"char_id">> := CharID, <<"data">> := Data, <<"extra">> := Extra} = Head,
-    case dj_global:find_char_pid(CharID) of
-        {error, _} -> ok;
-        {ok, Pid} -> Pid ! {api_return, Data, Extra}
-    end,
-    api_response_handle_others(Tail).
+
+-spec parse_session(binary()) -> any().
+parse_session(Session) ->
+    Req = #'API.Session.Parse'{session = Session},
+    post("/api/session/parse/", term_to_binary(Req)).
+
+-spec party_create(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> any().
+party_create(SID, CharID, PartyLevel) ->
+    Req = #'API.Party.Create'{
+        server_id = SID,
+        char_id = CharID,
+        party_level = PartyLevel
+    },
+
+    post("/api/party/create/", term_to_binary(Req)).
+
+-spec party_start(non_neg_integer(), non_neg_integer(),
+    non_neg_integer(), [non_neg_integer()]) -> any().
+party_start(SID, CharID, PartyLevel, Members) ->
+    Req = #'API.Party.Start'{
+        server_id = SID,
+        char_id = CharID,
+        party_level = PartyLevel,
+        members = Members
+    },
+
+    post("/api/party/start/", term_to_binary(Req)).
+
+-spec party_buy(non_neg_integer(), non_neg_integer(),non_neg_integer(),
+    non_neg_integer(), [non_neg_integer()]) -> any().
+party_buy(SID, CharID, PartyLevel, BuyID, Members) ->
+    Req = #'API.Party.Buy'{
+        server_id = SID,
+        char_id = CharID,
+        party_level = PartyLevel,
+        buy_id = BuyID,
+        members = Members
+    },
+
+    post("/api/party/buy/", term_to_binary(Req)).
+
+-spec party_end(non_neg_integer(), non_neg_integer(),
+    non_neg_integer(), [non_neg_integer()]) -> any().
+party_end(SID, CharID, PartyLevel, Members) ->
+    Req = #'API.Party.End'{
+        server_id = SID,
+        char_id = CharID,
+        party_level = PartyLevel,
+        members = Members
+    },
+
+    post("/api/party/end/", term_to_binary(Req)).

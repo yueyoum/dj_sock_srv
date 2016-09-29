@@ -13,12 +13,6 @@
 -export([handle/2,
     encode_message/1]).
 
-%% api succeed callback
--export([succeed_callback_party_create/1,
-    succeed_callback_socket_connect/1,
-    succeed_callback_buy_item/1,
-    succeed_callback_party_start/1]).
-
 -include("dj_player.hrl").
 -include("dj_error_code.hrl").
 -include("dj_protocol.hrl").
@@ -28,11 +22,8 @@ handle(#'ProtoSocketConnectRequest'{session = undefined}, _State) ->
     {error, "SocketConnectRequest.session is undefined"};
 
 handle(#'ProtoSocketConnectRequest'{session = Session}, #client_state{char_id = 0} = State) ->
-    dj_http_client:api_response_handle(
-        parse_session,
-        Session,
-        {?MODULE, succeed_callback_socket_connect, [State]}
-    );
+    Res = dj_http_client:parse_session(Session),
+    dj_api_handler:handle(Res, [], State);
 
 handle(#'ProtoSocketConnectRequest'{}, _State) ->
     {error, "ReSend SocketConnectRequest"};
@@ -84,13 +75,8 @@ handle(#'ProtoPartyCreateRequest'{id = undefined}, _) ->
 handle(#'ProtoPartyCreateRequest'{id = PartyLevel},
     #client_state{server_id = SID, char_id = CharID} = State) ->
 
-    Req = json:to_binary(#{server_id => SID, char_id => CharID, party_level => PartyLevel}),
-
-    dj_http_client:api_response_handle(
-        party_create,
-        Req,
-        {?MODULE, succeed_callback_party_create, [PartyLevel, State]}
-    );
+    Res = dj_http_client:party_create(SID, CharID, PartyLevel),
+    dj_api_handler:handle(Res, [PartyLevel], State);
 
 %% PartyJoinRequest
 handle(#'ProtoPartyJoinRequest'{}, #client_state{party_room_pid = Pid}) when is_pid(Pid) ->
@@ -180,19 +166,9 @@ handle(#'ProtoPartyBuyRequest'{buy_id = BuyID},
 
     case dj_party_room:buy_check(RoomPid, CharID, BuyID) of
         {ok, Lv, Members} ->
-            Req = json:to_binary(#{
-                server_id => SID,
-                char_id => CharID,
-                party_level => Lv,
-                buy_id => BuyID,
-                member_ids => Members
-            }),
+            Res = dj_http_client:party_buy(SID, CharID, Lv, BuyID, Members),
+            dj_api_handler:handle(Res, [BuyID], State);
 
-            dj_http_client:api_response_handle(
-                party_buy,
-                Req,
-                {?MODULE, succeed_callback_buy_item, [BuyID, State]}
-            );
         Error ->
             Error
     end;
@@ -208,20 +184,9 @@ handle(#'ProtoPartyStartRequest'{},
     #client_state{server_id = SID, char_id = CharID, party_room_pid = RoomPid} = State) ->
 
     case dj_party_room:start_party(RoomPid, CharID) of
-        {ok, _Lv, JoinMembers} ->
-            Req = json:to_binary(#{
-                server_id => SID,
-                char_id => CharID,
-                member_ids => JoinMembers
-            }),
-
-            dj_http_client:api_response_handle(
-                party_start,
-                Req,
-                {?MODULE, succeed_callback_party_start, [State]}
-            ),
-
-            {ok, State};
+        {ok, Lv, JoinMembers} ->
+            Res = dj_http_client:party_start(SID, CharID, Lv, JoinMembers),
+            dj_api_handler:handle(Res, [], State);
         Error ->
             Error
     end;
@@ -240,76 +205,6 @@ handle(#'ProtoPartyDismissRequest'{},
         Error ->
             Error
     end.
-
-
-%% =======================
-
-succeed_callback_socket_connect([ApiReturn,
-    #client_state{socket = Socket, transport = Transport} = State]) ->
-
-    #{<<"server_id">> := SID, <<"char_id">> := CID,
-        <<"flag">> := Flag, <<"name">> := Name,
-        <<"party_info">> := PartyInfo} = ApiReturn,
-
-    #{<<"remained_create_times">> := CT,
-        <<"remained_join_times">> := JT,
-        <<"talent_id">> := Talent} = PartyInfo,
-
-    Info = #{flag => Flag, name => Name},
-
-    case dj_global:find_char_pid(CID) of
-        {error, _} -> ok;
-        {ok, CharPid} ->
-            lager:warning("ODDLY! Char " ++ integer_to_list(CID) ++ " connect, But find old pid: " ++ pid_to_list(CharPid)),
-            gen_server:call(CharPid, shutdown)
-    end,
-
-    dj_global:register_char(CID),
-
-    State1 = State#client_state{
-        server_id = SID,
-        char_id = CID,
-        info = Info,
-        party_room_pid = undefined,
-        party_remained_create_times = CT,
-        party_remained_join_times = JT,
-        party_talent_id = Talent},
-
-    State2 =
-    case dj_global:find_char_party_room_pid(CID) of
-        {error, _} ->
-            State1;
-        {ok, RoomPid} ->
-            State1#client_state{party_room_pid = RoomPid}
-    end,
-
-    Response = #'ProtoSocketConnectResponse'{
-        ret = 0,
-        session = <<>>,
-        next_try_at = 0
-    },
-    dj_client:response(Transport, Socket, Response),
-
-    gen_server:cast(self(), send_login_notify),
-    {ok, State2}.
-
-
-succeed_callback_party_create([_, PartyLevel,
-    #client_state{server_id = SID, char_id = CharID, info = Info} = State]) ->
-
-    {ok, RoomPid} = dj_party_sup:create_room(SID, CharID, Info, PartyLevel),
-    {ok, State#client_state{party_room_pid = RoomPid}}.
-
-succeed_callback_party_start([_, State]) ->
-    {ok, State}.
-
-succeed_callback_buy_item([
-    #{<<"buy_name">> := BuyName, <<"item_name">> := ItemName},
-    BuyId,
-    #client_state{char_id = CharID, party_room_pid = RoomPid} = State]) ->
-
-    dj_party_room:buy_done(RoomPid, CharID, BuyId, BuyName, ItemName),
-    {ok, State}.
 
 
 %% =================================

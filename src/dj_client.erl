@@ -80,7 +80,8 @@ init([Ref, Socket, Transport, _Opts]) ->
         party_room_pid = undefined,
         party_remained_create_times = 0,
         party_remained_join_times = 0,
-        party_talent_id = 0},
+        party_talent_id = 0,
+        party_max_buy_times = 0},
 
     gen_server:enter_loop(?SERVER, [], State).
 %%--------------------------------------------------------------------
@@ -161,8 +162,9 @@ handle_cast({send_party_notify, PartyProto}, State) ->
     send_party_info_notify(PartyProto, State),
     {noreply, State};
 
-handle_cast({send_msg, Msg}, #client_state{socket = Socket, transport = Transport} = State) ->
-    response(Transport, Socket, Msg),
+handle_cast({send_msg, Msgs}, #client_state{socket = Socket, transport = Transport} = State) ->
+    Fun = fun(M) -> response(Transport, Socket, M) end,
+    lists:foreach(Fun, Msgs),
     {noreply, State};
 
 handle_cast({set_party_talent_id, Talent}, State) ->
@@ -278,6 +280,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+-spec process_msg(Name, binary(), #client_state{}) ->
+    {ok, #client_state{}} |
+    {error, term()} |
+    {error, term(), integer()}
+    when Name :: atom() | undefined.
 process_msg(undefined, _MsgBin, _State) ->
     {error, "Unkown Msg ID"};
 

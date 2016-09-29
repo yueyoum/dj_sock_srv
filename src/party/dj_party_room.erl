@@ -24,7 +24,7 @@
     kick_member/3,
     chat/3,
     buy_check/3,
-    buy_done/5,
+    buy_done/6,
     kill_room_by_char_id/1]).
 
 %% gen_server callbacks
@@ -35,10 +35,10 @@
     terminate/2,
     code_change/3]).
 
--export([succeed_callback_party_end/1]).
 
 -include("dj_protocol.hrl").
 -include("dj_error_code.hrl").
+-include("dj_api.hrl").
 
 -type(seatid()  :: 1|2|3).
 
@@ -63,6 +63,7 @@
     create_at   :: pos_integer(),   % utc timestamp
     start_at    :: integer()       % utc timestamp. 0 means not start
 }).
+
 
 -define(ROOM_SURVIVAL_SECONDS, 300).
 
@@ -118,8 +119,8 @@ kick_member(RoomPid, FromID, TargetID) ->
 buy_check(RoomPid, FromID, BuyID) ->
     gen_server:call(RoomPid, {buy_check, FromID, BuyID}).
 
-buy_done(RoomPid, FromID, BuyID, BuyName, ItemName) ->
-    gen_server:cast(RoomPid, {buy_done, FromID, BuyID, BuyName, ItemName}).
+buy_done(RoomPid, FromID, BuyID, BuyName, ItemName, ItemAmount) ->
+    gen_server:cast(RoomPid, {buy_done, FromID, BuyID, BuyName, ItemName, ItemAmount}).
 
 chat(RoomPid, FromID, Content) ->
     gen_server:cast(RoomPid, {chat, FromID, Content}).
@@ -386,7 +387,7 @@ handle_call(kill_room, _From, #room{seats = Seats} = State) ->
     {noreply, NewState :: #room{}, timeout() | hibernate} |
     {stop, Reason :: term(), NewState :: #room{}}).
 
-handle_cast({buy_done, FromID, BuyID, BuyName, ItemName},
+handle_cast({buy_done, FromID, BuyID, BuyName, ItemName, ItemAmount},
     #room{seats = Seats, messages = Messages} = State) ->
 
     {SeatID, Member} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
@@ -405,7 +406,7 @@ handle_cast({buy_done, FromID, BuyID, BuyName, ItemName},
     Member1 = Member#room_member{buy_info = BuyInfo1},
     Seats1 = Seats#{SeatID := Member1},
 
-    NewMsg = generate_party_message(2, [Name, BuyName, ItemName]),
+    NewMsg = generate_party_message(2, [Name, BuyName, ItemName, integer_to_binary(ItemAmount)]),
     gen_server:cast(self(), broadcast_party_notify),
 
     {noreply, State#room{seats = Seats1, messages = [NewMsg | Messages]}};
@@ -426,7 +427,7 @@ handle_cast(broadcast_party_notify, #room{seats = Seats} = State) ->
 
 handle_cast({broadcast_msgbin, MsgBin}, #room{seats = Seats} = State) ->
     CharIDs = get_member_char_ids(Seats),
-    gen_cast_to_members(CharIDs, {send_msg, MsgBin}, {}),
+    gen_cast_to_members(CharIDs, {send_msg, [MsgBin]}, {}),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -446,27 +447,24 @@ handle_cast({broadcast_msgbin, MsgBin}, #room{seats = Seats} = State) ->
 handle_info(party_end, #room{sid = SID, owner = Owner, level = Lv, seats = Seats} = State) ->
     lager:info("Party End. Owner: ~p", [Owner]),
 
-    JoinMembers = lists:delete(Owner, get_member_char_ids(Seats)),
+    Members = get_member_char_ids(Seats),
+    JoinedMembers = lists:delete(Owner, Members),
 
-    Req = json:to_binary(#{
-        server_id => SID,
-        char_id => Owner,
-        party_level => Lv,
-        member_ids => JoinMembers
-    }),
+    Res = dj_http_client:party_end(SID, Owner, Lv, JoinedMembers),
+    #'API.Party.EndDone'{ret = Ret, extras = Extras, talent_id = Talent} = Res,
 
-    OwnerPid =
-    case dj_global:find_char_pid(Owner) of
-        {error, _} -> undefined;
-        {ok, Pid} -> Pid
+    case Ret =:= 0 of
+        true ->
+            case dj_global:find_char_pid(Owner) of
+                {error, _} -> ok;
+                {ok, Pid} -> gen_server:cast(Pid, {set_party_talent_id, Talent})
+            end;
+        false ->
+            lager:warning("API Party End. Error: ~p", Ret)
     end,
 
-    dj_http_client:api_response_handle(
-        party_end,
-        Req,
-        {?MODULE, succeed_callback_party_end, [State]},
-        OwnerPid
-    ),
+    gen_cast_to_members(Members, party_end, {dj_global, unregister_char_party_room, []}),
+    dj_api_handler:dispatch_extra(Extras),
 
     {stop, normal, State}.
 
@@ -504,20 +502,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-succeed_callback_party_end([#{<<"talent_id">> := Talent},
-    #room{owner = Owner, seats = Seats} = State]) ->
 
-    case dj_global:find_char_pid(Owner) of
-        {error, _} -> ok;
-        {ok, Pid} -> gen_server:cast(Pid, {set_party_talent_id, Talent})
-    end,
-
-    CharIDS = get_member_char_ids(Seats),
-    gen_cast_to_members(CharIDS, party_end, {dj_global, unregister_char_party_room, []}),
-    {ok, State}.
-
-%% =============================
-
+-spec get_member_amount(map()) -> pos_integer().
 get_member_amount(Seats) ->
     M = maps:filter(fun(_K, V) -> V =/= undefined end, Seats),
     maps:size(M).
@@ -535,9 +521,11 @@ get_member_char_ids(Seats) ->
     maps:fold(Fun, [], Seats).
 
 
+-spec get_empty_seats(map()) -> map().
 get_empty_seats(Seats) ->
     maps:filter(fun(_K, V) -> V =:= undefined end, Seats).
 
+-spec find_seat_id_by_char_id(list(), pos_integer()) -> {seatid(), #room_member{}} | undefined.
 find_seat_id_by_char_id([], _) ->
     undefined;
 
