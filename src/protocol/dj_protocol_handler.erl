@@ -16,6 +16,7 @@
 -include("dj_player.hrl").
 -include("dj_error_code.hrl").
 -include("dj_protocol.hrl").
+-include("dj_api.hrl").
 
 %% SocketConnectRequest
 handle(#'ProtoSocketConnectRequest'{session = undefined}, _State) ->
@@ -34,33 +35,9 @@ handle(_, #client_state{char_id = CharID}) when CharID =:= 0 ->
     {error, "must send SocketConnectRequest first", ?ERROR_CODE_INVALID_OPERATE};
 
 %% PartyRoomRequest
-handle(#'ProtoPartyRoomRequest'{},
-    #client_state{socket = Socket, transport = Transport} = State) ->
-
-    InfoList = dj_party_room:get_all_rooms(),
-    Fun = fun({ok, OwnerID, OwnerName, Lv, Amount, StartAt}, Acc) ->
-        case StartAt > 0 of
-            true -> Acc;
-            false ->
-                Msg = #'ProtoPartyRoomResponse.PartyRoom'{
-                    owner_id = integer_to_binary(OwnerID),
-                    owner_name = OwnerName,
-                    level = Lv,
-                    current_amount = Amount
-                },
-                [Msg | Acc]
-        end
-          end,
-
-    Response = #'ProtoPartyRoomResponse'{
-        ret = 0,
-        session = <<>>,
-        rooms = lists:foldl(Fun, [], InfoList)
-    },
-
-    dj_client:response(Transport, Socket, Response),
-    {ok, State};
-
+handle(#'ProtoPartyRoomRequest'{}, #client_state{server_id = SID, char_id = CharID} = State) ->
+    Res = dj_http_client:union_get_info(SID, CharID),
+    dj_api_handler:handle(Res, [], State);
 
 %% PartyCreateRequest
 handle(#'ProtoPartyCreateRequest'{}, #client_state{party_room_pid = Pid}) when is_pid(Pid) ->
@@ -88,17 +65,14 @@ handle(#'ProtoPartyJoinRequest'{}, #client_state{party_remained_join_times = JT}
 handle(#'ProtoPartyJoinRequest'{owner_id = undefined}, _) ->
     {error, "party join request, bad message", ?ERROR_CODE_BAD_MESSAGE};
 
-handle(#'ProtoPartyJoinRequest'{owner_id = OwnerID}, #client_state{char_id = CharID, info = Info} = State) ->
-    case dj_global:find_char_party_room_pid(binary_to_integer(OwnerID)) of
+handle(#'ProtoPartyJoinRequest'{owner_id = OwnerID},
+    #client_state{server_id = SID, char_id = CharID} = State) ->
+    case dj_global:find_char_party_room_pid(OwnerID) of
         {error, _} ->
             {error, "party join error. can not find room", ?ERROR_CODE_PARTY_JOIN_ERROR_NO_ROOM};
         {ok, Pid} ->
-            case dj_party_room:join_room(Pid, CharID, Info) of
-                ok ->
-                    {ok, State#client_state{party_room_pid = Pid}};
-                Error ->
-                    Error
-            end
+            Res = dj_http_client:party_join(SID, CharID, OwnerID),
+            dj_api_handler:handle(Res, [Pid], State)
     end;
 
 %% PartyQuitRequest

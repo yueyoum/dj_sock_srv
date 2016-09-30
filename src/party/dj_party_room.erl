@@ -12,7 +12,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/4,
+-export([start_link/5,
     get_all_rooms/0,
     get_room_info/1,
     get_simple_room_info/1,
@@ -58,6 +58,7 @@
     sid         :: pos_integer(),   % server id
     owner       :: pos_integer(),   % char id, not pid
     level       :: pos_integer(),   % room level, config id
+    union_id    :: binary(),
     seats       :: #{seatid() := #room_member{} | undefined},
     messages    :: [#room_message{}],
     create_at   :: pos_integer(),   % utc timestamp
@@ -77,10 +78,10 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link(pos_integer(), pos_integer(), map(), pos_integer()) ->
+-spec(start_link(pos_integer(), pos_integer(), map(), pos_integer(), binary()) ->
     {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
-start_link(ServerID, FromID, CharInfo, RoomLevel) ->
-    gen_server:start_link(?MODULE, [ServerID, FromID, CharInfo, RoomLevel], []).
+start_link(ServerID, FromID, CharInfo, RoomLevel, UnionID) ->
+    gen_server:start_link(?MODULE, [ServerID, FromID, CharInfo, RoomLevel, UnionID], []).
 
 get_all_rooms() ->
     PidList = dj_global:find_all_room_pids(),
@@ -149,7 +150,7 @@ kill_room_by_char_id(CharID) ->
 -spec(init(Args :: term()) ->
     {ok, State :: #room{}} | {ok, State :: #room{}, timeout() | hibernate} |
     {stop, Reason :: term()} | ignore).
-init([ServerID, OwnerID, CharInfo, RoomLevel]) ->
+init([ServerID, OwnerID, CharInfo, RoomLevel, UnionID]) ->
     Member = #room_member{
         char_id = OwnerID, joined_at = arrow:timestamp(),
         info = CharInfo, buy_info = #{}
@@ -159,6 +160,7 @@ init([ServerID, OwnerID, CharInfo, RoomLevel]) ->
 
     State = #room{
         sid = ServerID, owner = OwnerID, level = RoomLevel,
+        union_id = UnionID,
         seats = Seats,
         messages = [],
         create_at = arrow:timestamp(),
@@ -191,14 +193,15 @@ init([ServerID, OwnerID, CharInfo, RoomLevel]) ->
 handle_call(party_info, _From, State) ->
     {reply, make_proto_party_info(State), State};
 
-handle_call(simple_party_info, _From, #room{level = Lv, seats = Seats, start_at = At} = State) ->
+handle_call(simple_party_info, _From,
+    #room{level = Lv, union_id = UnionID, seats = Seats, start_at = At} = State) ->
     #{1 := Owner} = Seats,
     #{name := Name} = Owner#room_member.info,
 
     Amount = get_member_amount(Seats),
 
-    % {ok, owner_id, owner_name, level, amount, start_at}
-    Reply = {ok, Owner#room_member.char_id, Name, Lv, Amount, At},
+    % {ok, owner_id, owner_name, level, amount, start_at, union_id}
+    Reply = {ok, Owner#room_member.char_id, Name, Lv, Amount, At, UnionID},
     {reply, Reply, State};
 
 handle_call(room_message, _From, #room{messages = Messages} = State) ->

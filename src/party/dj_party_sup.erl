@@ -13,7 +13,7 @@
 
 %% API
 -export([start_link/0,
-    create_room/4]).
+    create_room/5]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -35,8 +35,8 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-create_room(ServerID, CharID, CharInfo, RoomLevel) ->
-    supervisor:start_child(?SERVER, [ServerID, CharID, CharInfo, RoomLevel]).
+create_room(ServerID, CharID, CharInfo, RoomLevel, UnionID) ->
+    supervisor:start_child(?SERVER, [ServerID, CharID, CharInfo, RoomLevel, UnionID]).
 
 %%%===================================================================
 %%% Supervisor callbacks

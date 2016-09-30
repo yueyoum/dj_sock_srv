@@ -1,4 +1,4 @@
-%% Auto generate at 2016-09-29T18:05:27.407096.
+%% Auto generate at 2016-09-30T11:46:57.843843.
 %% By proto-ext
 %% DO NOT EDIT
 
@@ -16,6 +16,18 @@
 }).
 
 -record('API.Party.CreateDone', {
+    ret                           :: integer(),
+    extras                        :: [#'API.Common.ExtraReturn'{}],
+    union_id                      :: binary()
+}).
+
+-record('API.Party.Join', {
+    server_id                     :: integer(),
+    char_id                       :: integer(),
+    owner_id                      :: integer()
+}).
+
+-record('API.Party.JoinDone', {
     ret                           :: integer(),
     extras                        :: [#'API.Common.ExtraReturn'{}]
 }).
@@ -80,4 +92,16 @@
     flag                          :: integer(),
     name                          :: binary(),
     partyinfo                     :: #'API.Session.PartyInfo'{}
+}).
+
+-record('API.Union.GetInfo', {
+    server_id                     :: integer(),
+    char_id                       :: integer()
+}).
+
+-record('API.Union.GetInfoDone', {
+    ret                           :: integer(),
+    extras                        :: [#'API.Common.ExtraReturn'{}],
+    union_id                      :: binary(),
+    owner_id                      :: integer()
 }).

@@ -75,16 +75,52 @@ handle(#'API.Session.ParseDone'{extras = Extras,
     {ok, State2};
 
 
+handle(#'API.Union.GetInfoDone'{ret = Ret}, [], _State) when Ret =/= 0 ->
+    {error, "API Party Create Errro: " ++ integer_to_list(Ret), Ret};
+
+handle(#'API.Union.GetInfoDone'{extras = Extras, union_id = UnionID}, [],
+    #client_state{socket = Socket, transport = Transport} = State) ->
+
+    InfoList = dj_party_room:get_all_rooms(),
+    Rooms = make_response_party_room_message(InfoList, UnionID, []),
+
+    Response = #'ProtoPartyRoomResponse'{
+        ret = 0,
+        session = <<>>,
+        rooms = Rooms
+    },
+
+    dj_client:response(Transport, Socket, Response),
+    dispatch_extra(Extras),
+    {ok, State};
+
 handle(#'API.Party.CreateDone'{ret = Ret}, _Args, _State) when Ret =/= 0 ->
     {error, "API Party Create Errro: " ++ integer_to_list(Ret), Ret};
 
 
-handle(#'API.Party.CreateDone'{extras = Extras}, [PartyLevel],
+handle(#'API.Party.CreateDone'{extras = Extras, union_id = UnionID}, [PartyLevel],
     #client_state{server_id = SID, char_id = CharID, info = Info} = State) ->
 
-    {ok, RoomPid} = dj_party_sup:create_room(SID, CharID, Info, PartyLevel),
+    {ok, RoomPid} = dj_party_sup:create_room(SID, CharID, Info, PartyLevel, UnionID),
     dispatch_extra(Extras),
     {ok, State#client_state{party_room_pid = RoomPid}};
+
+handle(#'API.Party.JoinDone'{ret = Ret}, _Args, _State) when Ret =/= 0 ->
+    {error, "API Party Join Errro: " ++ integer_to_list(Ret), Ret};
+
+handle(#'API.Party.JoinDone'{extras = Extras}, [RoomPid],
+    #client_state{char_id = CharID, info = Info} = State) ->
+
+    Ret =
+    case dj_party_room:join_room(RoomPid, CharID, Info) of
+        ok ->
+            {ok, State#client_state{party_room_pid = RoomPid}};
+        Error ->
+            Error
+    end,
+
+    dispatch_extra(Extras),
+    Ret;
 
 handle(#'API.Party.StartDone'{ret = Ret}, [], _State) when Ret =/= 0 ->
     {error, "API Party Start Errro: " ++ integer_to_list(Ret), Ret};
@@ -96,11 +132,13 @@ handle(#'API.Party.StartDone'{extras = Extras}, [], State) ->
 handle(#'API.Party.BuyDone'{ret = Ret}, _Args, _State) when Ret =/= 0 ->
     {error, "API Party Buy Errro: " ++ integer_to_list(Ret), Ret};
 
-handle(#'API.Party.BuyDone'{buy_name = BuyName, item_name = ItemName, item_amount = ItemAmount},
+handle(#'API.Party.BuyDone'{extras = Extras, buy_name = BuyName,
+    item_name = ItemName, item_amount = ItemAmount},
     [BuyId],
     #client_state{char_id = CharID, party_room_pid = RoomPid} = State) ->
 
     dj_party_room:buy_done(RoomPid, CharID, BuyId, BuyName, ItemName, ItemAmount),
+    dispatch_extra(Extras),
     {ok, State}.
 
 
@@ -117,3 +155,27 @@ dispatch_extra([#'API.Common.ExtraReturn'{char_id = CharID, msgs = Msgs} | Rest]
     end,
 
     dispatch_extra(Rest).
+
+
+-spec make_response_party_room_message(list(), binary(), list()) -> list().
+make_response_party_room_message([], _, Rooms) ->
+    Rooms;
+
+make_response_party_room_message([{ok, _, _, _, _, StartAt, _} | _Rest],
+    _CharUnionID, Rooms) when StartAt > 0 ->
+    Rooms;
+
+make_response_party_room_message([{ok, _, _, _, _, _, UnionID} | _],
+    CharUnionID, Rooms) when UnionID =/= CharUnionID ->
+    Rooms;
+
+make_response_party_room_message([{ok, OwnerID, OwnerName, Lv, Amount, _StartAt, _UnionID} | Rest],
+    CharUnionID, Rooms) ->
+    Msg = #'ProtoPartyRoomResponse.PartyRoom'{
+        owner_id = integer_to_binary(OwnerID),
+        owner_name = OwnerName,
+        level = Lv,
+        current_amount = Amount
+    },
+
+    make_response_party_room_message(Rest, CharUnionID, [Msg | Rooms]).
