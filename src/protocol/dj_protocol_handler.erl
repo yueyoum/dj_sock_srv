@@ -71,7 +71,7 @@ handle(#'ProtoPartyJoinRequest'{owner_id = OwnerID},
         {error, _} ->
             {error, "party join error. can not find room", ?ERROR_CODE_PARTY_JOIN_ERROR_NO_ROOM};
         {ok, Pid} ->
-            Res = dj_http_client:party_join(SID, CharID, OwnerID),
+            Res = dj_http_client:party_join(SID, CharID, binary_to_integer(OwnerID)),
             dj_api_handler:handle(Res, [Pid], State)
     end;
 
@@ -136,9 +136,10 @@ handle(#'ProtoPartyBuyRequest'{buy_id = undefined}, _) ->
     {error, "party buy request, bad message", ?ERROR_CODE_BAD_MESSAGE};
 
 handle(#'ProtoPartyBuyRequest'{buy_id = BuyID},
-    #client_state{server_id = SID, char_id = CharID, party_room_pid = RoomPid} = State) ->
+    #client_state{server_id = SID, char_id = CharID,
+        party_room_pid = RoomPid, party_max_buy_times = BT} = State) ->
 
-    case dj_party_room:buy_check(RoomPid, CharID, BuyID) of
+    case dj_party_room:buy_check(RoomPid, CharID, BuyID, BT) of
         {ok, Lv, Members} ->
             Res = dj_http_client:party_buy(SID, CharID, Lv, BuyID, Members),
             dj_api_handler:handle(Res, [BuyID], State);

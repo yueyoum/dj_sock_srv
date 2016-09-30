@@ -23,7 +23,7 @@
     quit_room/2,
     kick_member/3,
     chat/3,
-    buy_check/3,
+    buy_check/4,
     buy_done/6,
     kill_room_by_char_id/1]).
 
@@ -117,8 +117,8 @@ quit_room(RoomPid, FromID) ->
 kick_member(RoomPid, FromID, TargetID) ->
     gen_server:call(RoomPid, {kick_member, FromID, TargetID}).
 
-buy_check(RoomPid, FromID, BuyID) ->
-    gen_server:call(RoomPid, {buy_check, FromID, BuyID}).
+buy_check(RoomPid, FromID, BuyID, MaxBuyTimes) ->
+    gen_server:call(RoomPid, {buy_check, FromID, BuyID, MaxBuyTimes}).
 
 buy_done(RoomPid, FromID, BuyID, BuyName, ItemName, ItemAmount) ->
     gen_server:cast(RoomPid, {buy_done, FromID, BuyID, BuyName, ItemName, ItemAmount}).
@@ -346,11 +346,11 @@ handle_call({kick_member, _, TargetID}, _From, #room{owner = Owner, seats = Seat
             {reply, ok, State#room{seats = NewSeats}}
     end;
 
-handle_call({buy_check, _FromID, _BuyID},  _From, #room{start_at = 0} = State) ->
+handle_call({buy_check, _FromID, _BuyID, _},  _From, #room{start_at = 0} = State) ->
     Reply = {error, "party not start can not buy", ?ERROR_CODE_PARTY_NOT_STARTED},
     {reply, Reply, State};
 
-handle_call({buy_check, FromID, BuyID}, _From, #room{level = Lv, seats = Seats} = State) ->
+handle_call({buy_check, FromID, BuyID, MaxBuyTimes}, _From, #room{level = Lv, seats = Seats} = State) ->
     {_, Member} = find_seat_id_by_char_id(maps:to_list(Seats), FromID),
     OtherMembers = lists:delete(FromID, get_member_char_ids(Seats)),
 
@@ -359,7 +359,7 @@ handle_call({buy_check, FromID, BuyID}, _From, #room{level = Lv, seats = Seats} 
         error ->
             {ok, Lv, OtherMembers};
         {ok, Value} ->
-            case Value >= 10 of
+            case Value >= MaxBuyTimes of
                 true ->
                     {error, "party no buy times", ?ERROR_CODE_PARTY_NO_BUY_TIMES};
                 false ->

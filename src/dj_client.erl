@@ -14,8 +14,7 @@
 
 %% API
 -export([start_link/4,
-    response/3,
-    party_open_range/2]).
+    response/3]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -31,6 +30,7 @@
 
 -define(SERVER, ?MODULE).
 -define(ACTIVE, 10).
+-define(CLIENT_TIMEOUT, 1000 * 3600).
 
 
 %%%===================================================================
@@ -44,7 +44,7 @@
 %% @end
 %%--------------------------------------------------------------------
 start_link(Ref, Socket, Transport, Opts) ->
-    proc_lib:start_link(?SERVER, init, [[Ref, Socket, Transport, Opts]]).
+    gen_server:start_link(?SERVER, [Ref, Socket, Transport, Opts], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -65,13 +65,7 @@ start_link(Ref, Socket, Transport, Opts) ->
     {ok, State :: #client_state{}} | {ok, State :: #client_state{}, timeout() | hibernate} |
     {stop, Reason :: term()} | ignore).
 init([Ref, Socket, Transport, _Opts]) ->
-    {ok, {Ip, _Port}} = Transport:peername(Socket),
-    lager:info("New Connection From ~p", [inet_parse:ntoa(Ip)]),
-
-    ok = proc_lib:init_ack({ok, self()}),
-    ok = ranch:accept_ack(Ref),
-    ok = Transport:setopts(Socket, [{active, ?ACTIVE}, {packet, 4}]),
-
+    put(init, true),
     {OK, Closed, Error} = Transport:messages(),
 
     State = #client_state{ref = Ref, socket = Socket, transport = Transport,
@@ -83,7 +77,7 @@ init([Ref, Socket, Transport, _Opts]) ->
         party_talent_id = 0,
         party_max_buy_times = 0},
 
-    gen_server:enter_loop(?SERVER, [], State).
+    {ok, State, 0}.
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
@@ -130,51 +124,51 @@ handle_cast(send_login_notify,
 
     send_party_info_notify(PartyProto, State),
     response(Transport, Socket, MessageProto),
-    {noreply, State};
+    {noreply, State, ?CLIENT_TIMEOUT};
 
 handle_cast({party_start, create, PartyProto}, State) ->
     send_party_info_notify(PartyProto, #client_state{party_remained_create_times = CT} = State),
-    {noreply, State#client_state{party_remained_create_times = CT-1}};
+    {noreply, State#client_state{party_remained_create_times = CT-1}, ?CLIENT_TIMEOUT};
 
 handle_cast({party_start, join, PartyProto}, State) ->
     send_party_info_notify(PartyProto, #client_state{party_remained_join_times = JT} = State),
-    {noreply, State#client_state{party_remained_join_times = JT-1}};
+    {noreply, State#client_state{party_remained_join_times = JT-1}, ?CLIENT_TIMEOUT};
 
 handle_cast(party_dismiss, #client_state{socket = Socket, transport = Transport} = State) ->
     error_response(Transport, Socket, ?ERROR_CODE_PARTY_DISMISS),
     send_party_info_notify(undefined, State),
     % clean message
     response(Transport, Socket, dj_party_room:get_room_message(undefined)),
-    {noreply, State#client_state{party_room_pid = undefined}};
+    {noreply, State#client_state{party_room_pid = undefined}, ?CLIENT_TIMEOUT};
 
 handle_cast(party_quit, #client_state{socket = Socket, transport = Transport} = State) ->
     send_party_info_notify(undefined, State),
     response(Transport, Socket, dj_party_room:get_room_message(undefined)),
-    {noreply, State#client_state{party_room_pid = undefined}};
+    {noreply, State#client_state{party_room_pid = undefined}, ?CLIENT_TIMEOUT};
 
 handle_cast(party_been_kicked, #client_state{socket = Socket, transport = Transport} = State) ->
     error_response(Transport, Socket, ?ERROR_CODE_PARTY_BEEN_KICKED),
     send_party_info_notify(undefined, State),
     response(Transport, Socket, dj_party_room:get_room_message(undefined)),
-    {noreply, State#client_state{party_room_pid = undefined}};
+    {noreply, State#client_state{party_room_pid = undefined}, ?CLIENT_TIMEOUT};
 
 handle_cast({send_party_notify, PartyProto}, State) ->
     send_party_info_notify(PartyProto, State),
-    {noreply, State};
+    {noreply, State, ?CLIENT_TIMEOUT};
 
 handle_cast({send_msg, Msgs}, #client_state{socket = Socket, transport = Transport} = State) ->
     Fun = fun(M) -> response(Transport, Socket, M) end,
     lists:foreach(Fun, Msgs),
-    {noreply, State};
+    {noreply, State, ?CLIENT_TIMEOUT};
 
 handle_cast({set_party_talent_id, Talent}, State) ->
-    {noreply, State#client_state{party_talent_id = Talent}};
+    {noreply, State#client_state{party_talent_id = Talent}, ?CLIENT_TIMEOUT};
 
 handle_cast(party_end, #client_state{socket = Socket, transport = Transport} = State) ->
     error_response(Transport, Socket, ?ERROR_CODE_PARTY_END),
     send_party_info_notify(undefined, State),
     response(Transport, Socket, dj_party_room:get_room_message(undefined)),
-    {noreply, State#client_state{party_room_pid = undefined}}.
+    {noreply, State#client_state{party_room_pid = undefined}, ?CLIENT_TIMEOUT}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -198,7 +192,7 @@ handle_info({OK, Socket, <<ID:32, MsgBin/binary>>},
 
     case process_msg(Name, MsgBin, State) of
         {ok, NewState} ->
-            {noreply, NewState};
+            {noreply, NewState, ?CLIENT_TIMEOUT};
         {error, Reason} ->
             error_response(Transport, Socket),
             lager:error("Process msg Error: ~p", [Reason]),
@@ -206,7 +200,7 @@ handle_info({OK, Socket, <<ID:32, MsgBin/binary>>},
         {error, Reason, ErrorCode} ->
             lager:warning("Warn: ~p, ~p", [ErrorCode, Reason]),
             error_response(Transport, Socket, ErrorCode),
-            {noreply, State}
+            {noreply, State, ?CLIENT_TIMEOUT}
     end;
 
 handle_info({OK, Socket, _Data}, #client_state{socket = Socket, transport = Transport, ok = OK} = State) ->
@@ -226,24 +220,29 @@ handle_info({tcp_passive, Socket}, #client_state{socket = Socket, transport = Tr
     io:format("Socket Passive!~n"),
     %% TODO
     Transport:setopts(Socket, [{active, ?ACTIVE}]),
-    {noreply, State};
+    {noreply, State, ?CLIENT_TIMEOUT};
 
-handle_info({api_return, _Data, _Extra}, #client_state{socket = _Socket, transport = _Transport} = State) ->
-    % TODO _Data
-%%    Transport:send(Socket, Extra),
-    {noreply, State};
+handle_info(timeout, #client_state{ref = Ref, socket = Socket, transport = Transport} = State) ->
+    case get(init) of
+        true ->
+            % do init stuffs
+            {ok, {Ip, _Port}} = Transport:peername(Socket),
+            lager:info("New Connection From ~p", [inet_parse:ntoa(Ip)]),
+            ok = ranch:accept_ack(Ref),
+            erase(init),
 
-handle_info({api_return, Extra}, #client_state{socket = Socket, transport = Transport} = State) ->
-    Fun = fun(Ex) ->
-        Transport:send(Socket, base64:decode(Ex))
-        end,
+            case is_party_open() of
+                true ->
+                    {noreply, State, ?CLIENT_TIMEOUT};
+                false ->
+                    lager:warning("Party Not Open, Close Connection"),
+                    {stop, normal, State}
+            end;
+        undefined ->
+            lager:info("Client timeout"),
+            {stop, normal, State}
+    end.
 
-    lists:foreach(Fun, Extra),
-    {noreply, State};
-
-handle_info(timeout, State) ->
-    lager:info("Client timeout"),
-    {stop, timeout, State}.
 
 
 %%--------------------------------------------------------------------
@@ -337,19 +336,21 @@ response(Transport, Socket, Msg) ->
     response(Transport, Socket, dj_protocol_handler:encode_message(Msg)).
 
 
-party_open_range(H1, H2) ->
-    {{Y, M, D}, _} = arrow:add_hours(arrow:timestamp(), 8),
-
-    StartLocal = {{Y, M, D}, {H1, 0, 0}},
-    StartUTC = arrow:add_hours(arrow:timestamp(StartLocal), -8),
-
-    EndLocal = {{Y, M, D}, {H2, 0, 0}},
-    EndUTC = arrow:add_hours(arrow:timestamp(EndLocal), -8),
-
-    {arrow:timestamp(StartUTC), arrow:timestamp(EndUTC)}.
+%%party_open_range(H1, H2) ->
+%%    {{Y, M, D}, _} = arrow:add_hours(arrow:timestamp(), 8),
+%%
+%%    StartLocal = {{Y, M, D}, {H1, 0, 0}},
+%%    StartUTC = arrow:add_hours(arrow:timestamp(StartLocal), -8),
+%%
+%%    EndLocal = {{Y, M, D}, {H2, 0, 0}},
+%%    EndUTC = arrow:add_hours(arrow:timestamp(EndLocal), -8),
+%%
+%%    {arrow:timestamp(StartUTC), arrow:timestamp(EndUTC)}.
 
 tomorrow_time(Hour) ->
-    {Date, {HH, _, _}} = arrow:add_hours(arrow:timestamp(), 8),
+    {ok, Tz} = application:get_env(dj_sock_srv, time_zone),
+
+    {Date, {HH, _, _}} = arrow:add_hours(arrow:timestamp(), Tz),
 
     T1 =
     case HH >= Hour of
@@ -359,5 +360,14 @@ tomorrow_time(Hour) ->
             {Date, {Hour, 0, 0}}
     end,
 
-    T2 = arrow:add_hours(T1, -8),
+    T2 = arrow:add_hours(T1, -Tz),
     arrow:timestamp(T2).
+
+is_party_open() ->
+    {ok, Tz} = application:get_env(dj_sock_srv, time_zone),
+    {ok, StartHour} = application:get_env(dj_sock_env, party_start_hour),
+    {ok, EndHour} = application:get_env(dj_sock_env, party_end_hour),
+
+    {_, {H, _, _}} = arrow:add_hours(arrow:timestamp(), Tz),
+
+    H >= StartHour andalso H < EndHour.
