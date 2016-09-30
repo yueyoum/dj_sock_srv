@@ -25,7 +25,8 @@
     chat/3,
     buy_check/4,
     buy_done/6,
-    kill_room_by_char_id/1]).
+    kill_room_by_char_id/1,
+    is_party_open/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -62,7 +63,8 @@
     seats       :: #{seatid() := #room_member{} | undefined},
     messages    :: [#room_message{}],
     create_at   :: pos_integer(),   % utc timestamp
-    start_at    :: integer()       % utc timestamp. 0 means not start
+    start_at    :: integer(),       % utc timestamp. 0 means not start
+    end_timer_ref   :: reference()
 }).
 
 
@@ -158,13 +160,20 @@ init([ServerID, OwnerID, CharInfo, RoomLevel, UnionID]) ->
 
     Seats = #{1 => Member, 2 => undefined, 3 => undefined},
 
+    Now = arrow:timestamp(),
+    {_, End} = party_open_time_range(),
+
+    SecondsLeft = End - Now,
+    TimerRef = erlang:start_timer(SecondsLeft * 1000, self(), party_close),
+
     State = #room{
         sid = ServerID, owner = OwnerID, level = RoomLevel,
         union_id = UnionID,
         seats = Seats,
         messages = [],
         create_at = arrow:timestamp(),
-        start_at = 0
+        start_at = 0,
+        end_timer_ref = TimerRef
     },
 
     dj_global:register_party_room(),
@@ -469,7 +478,21 @@ handle_info(party_end, #room{sid = SID, owner = Owner, level = Lv, seats = Seats
     gen_cast_to_members(Members, party_end, {dj_global, unregister_char_party_room, []}),
     dj_api_handler:dispatch_extra(Extras),
 
-    {stop, normal, State}.
+    {stop, normal, State};
+
+handle_info({timeout, TimerRef, party_close},
+    #room{owner = Owner, seats = Seats, start_at = At, end_timer_ref = TimerRef} = State) ->
+    case At > 0 of
+        true ->
+            % a started party will not be closed
+            ok;
+        false ->
+            CharIDS = get_member_char_ids(Seats),
+            gen_cast_to_members(CharIDS, party_dismiss, {dj_global, unregister_char_party_room, []}),
+            lager:info("Party closed. Owner: ~p", [Owner]),
+            {stop, normal, State}
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -484,7 +507,8 @@ handle_info(party_end, #room{sid = SID, owner = Owner, level = Lv, seats = Seats
 %%--------------------------------------------------------------------
 -spec(terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
     State :: #room{}) -> term()).
-terminate(_Reason, _State) ->
+terminate(_Reason, #room{end_timer_ref = TimerRef}) ->
+    erlang:cancel_timer(TimerRef),
     ok.
 
 %%--------------------------------------------------------------------
@@ -644,3 +668,27 @@ gen_cast_to_members(CharIDs, Message, FunctionOnCharID) ->
           end,
 
     lists:foreach(Fun, CharIDs).
+
+%% ==============================
+
+party_open_time_range() ->
+    {ok, Tz} = application:get_env(dj_sock_srv, time_zone),
+    {ok, StartHour} = application:get_env(dj_sock_env, party_start_hour),
+    {ok, EndHour} = application:get_env(dj_sock_env, party_end_hour),
+
+    {{Y, M, D}, _} = arrow:add_hours(arrow:timestamp(), Tz),
+
+    StartLocal = {{Y, M, D}, {StartHour, 0, 0}},
+    StartUTC = arrow:add_hours(arrow:timestamp(StartLocal), -Tz),
+
+    EndLocal = {{Y, M, D}, {EndHour, 0, 0}},
+    EndUTC = arrow:add_hours(arrow:timestamp(EndLocal), -Tz),
+
+    {arrow:timestamp(StartUTC), arrow:timestamp(EndUTC)}.
+
+is_party_open() ->
+    Now = arrow:timestamp(),
+
+    {Start, End} = party_open_time_range(),
+
+    Now >= Start andalso Now < End.

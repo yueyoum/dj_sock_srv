@@ -231,7 +231,7 @@ handle_info(timeout, #client_state{ref = Ref, socket = Socket, transport = Trans
             ok = ranch:accept_ack(Ref),
             erase(init),
 
-            case is_party_open() of
+            case dj_party_room:is_party_open() of
                 true ->
                     {noreply, State, ?CLIENT_TIMEOUT};
                 false ->
@@ -336,17 +336,6 @@ response(Transport, Socket, Msg) ->
     response(Transport, Socket, dj_protocol_handler:encode_message(Msg)).
 
 
-%%party_open_range(H1, H2) ->
-%%    {{Y, M, D}, _} = arrow:add_hours(arrow:timestamp(), 8),
-%%
-%%    StartLocal = {{Y, M, D}, {H1, 0, 0}},
-%%    StartUTC = arrow:add_hours(arrow:timestamp(StartLocal), -8),
-%%
-%%    EndLocal = {{Y, M, D}, {H2, 0, 0}},
-%%    EndUTC = arrow:add_hours(arrow:timestamp(EndLocal), -8),
-%%
-%%    {arrow:timestamp(StartUTC), arrow:timestamp(EndUTC)}.
-
 tomorrow_time(Hour) ->
     {ok, Tz} = application:get_env(dj_sock_srv, time_zone),
 
@@ -362,12 +351,3 @@ tomorrow_time(Hour) ->
 
     T2 = arrow:add_hours(T1, -Tz),
     arrow:timestamp(T2).
-
-is_party_open() ->
-    {ok, Tz} = application:get_env(dj_sock_srv, time_zone),
-    {ok, StartHour} = application:get_env(dj_sock_env, party_start_hour),
-    {ok, EndHour} = application:get_env(dj_sock_env, party_end_hour),
-
-    {_, {H, _, _}} = arrow:add_hours(arrow:timestamp(), Tz),
-
-    H >= StartHour andalso H < EndHour.
