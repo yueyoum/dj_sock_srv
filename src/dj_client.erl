@@ -67,6 +67,7 @@ start_link(Ref, Socket, Transport, Opts) ->
 init([Ref, Socket, Transport, _Opts]) ->
     put(init, true),
     {OK, Closed, Error} = Transport:messages(),
+    ok = Transport:setopts(Socket, [{active, ?ACTIVE}, {packet, 4}]),
 
     State = #client_state{ref = Ref, socket = Socket, transport = Transport,
         ok = OK, closed = Closed, error = Error,
