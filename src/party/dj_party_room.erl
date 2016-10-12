@@ -673,8 +673,8 @@ gen_cast_to_members(CharIDs, Message, FunctionOnCharID) ->
 
 party_open_time_range() ->
     {ok, Tz} = application:get_env(dj_sock_srv, time_zone),
-    {ok, StartHour} = application:get_env(dj_sock_env, party_start_hour),
-    {ok, EndHour} = application:get_env(dj_sock_env, party_end_hour),
+    {ok, StartHour} = application:get_env(dj_sock_srv, party_start_hour),
+    {ok, EndHour} = application:get_env(dj_sock_srv, party_end_hour),
 
     {{Y, M, D}, _} = arrow:add_hours(arrow:timestamp(), Tz),
 
