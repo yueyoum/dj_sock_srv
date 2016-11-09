@@ -127,13 +127,15 @@ handle_cast(send_login_notify,
     response(Transport, Socket, MessageProto),
     {noreply, State, ?CLIENT_TIMEOUT};
 
-handle_cast({party_start, create, PartyProto}, State) ->
-    send_party_info_notify(PartyProto, #client_state{party_remained_create_times = CT} = State),
-    {noreply, State#client_state{party_remained_create_times = CT-1}, ?CLIENT_TIMEOUT};
+handle_cast({party_start, create, PartyProto}, #client_state{party_remained_create_times = CT} = State) ->
+    State1 = State#client_state{party_remained_create_times = CT-1},
+    send_party_info_notify(PartyProto, State1),
+    {noreply, State1, ?CLIENT_TIMEOUT};
 
-handle_cast({party_start, join, PartyProto}, State) ->
-    send_party_info_notify(PartyProto, #client_state{party_remained_join_times = JT} = State),
-    {noreply, State#client_state{party_remained_join_times = JT-1}, ?CLIENT_TIMEOUT};
+handle_cast({party_start, join, PartyProto}, #client_state{party_remained_join_times = JT} = State) ->
+    State1 = State#client_state{party_remained_join_times = JT-1},
+    send_party_info_notify(PartyProto, State1),
+    {noreply, State1, ?CLIENT_TIMEOUT};
 
 handle_cast(party_dismiss, #client_state{socket = Socket, transport = Transport} = State) ->
     error_response(Transport, Socket, ?ERROR_CODE_PARTY_DISMISS),
