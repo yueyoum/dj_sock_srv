@@ -333,7 +333,11 @@ error_response(Transport, Socket, ErrorCode) ->
     ok.
 
 response(Transport, Socket, MsgBin) when is_binary(MsgBin)->
-    ok = Transport:send(Socket, MsgBin);
+    case Transport:send(Socket, MsgBin) of
+        ok -> ok;
+        {error, Reason} ->
+            lager:warning("Socket Send Error: ~p", [Reason])
+    end;
 
 response(Transport, Socket, Msg) ->
     response(Transport, Socket, dj_protocol_handler:encode_message(Msg)).
