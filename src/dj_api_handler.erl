@@ -76,7 +76,7 @@ handle(#'API.Session.ParseDone'{extras = Extras,
 
 
 handle(#'API.Union.GetInfoDone'{ret = Ret}, [], _State) when Ret =/= 0 ->
-    {error, "API Party Create Errro: " ++ integer_to_list(Ret), Ret};
+    {error, "API Union GetInfo Errro: " ++ integer_to_list(Ret), Ret};
 
 handle(#'API.Union.GetInfoDone'{extras = Extras, union_id = UnionID}, [],
     #client_state{socket = Socket, transport = Transport} = State) ->
@@ -161,13 +161,13 @@ dispatch_extra([#'API.Common.ExtraReturn'{char_id = CharID, msgs = Msgs} | Rest]
 make_response_party_room_message([], _, Rooms) ->
     Rooms;
 
-make_response_party_room_message([{ok, _, _, _, _, StartAt, _} | _Rest],
-    _CharUnionID, Rooms) when StartAt > 0 ->
-    Rooms;
+make_response_party_room_message([{ok, _, _, _, _, StartAt, _} | Rest],
+    CharUnionID, Rooms) when StartAt > 0 ->
+    make_response_party_room_message(Rest, CharUnionID, Rooms);
 
-make_response_party_room_message([{ok, _, _, _, _, _, UnionID} | _],
+make_response_party_room_message([{ok, _, _, _, _, _, UnionID} | Rest],
     CharUnionID, Rooms) when UnionID =/= CharUnionID ->
-    Rooms;
+    make_response_party_room_message(Rest, CharUnionID, Rooms);
 
 make_response_party_room_message([{ok, OwnerID, OwnerName, Lv, Amount, _StartAt, _UnionID} | Rest],
     CharUnionID, Rooms) ->
